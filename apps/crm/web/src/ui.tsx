@@ -3,8 +3,12 @@ import {
   type CrmObject,
   type Deal,
   type DealStage,
+  hasCctv,
+  hasInternet,
   isOpenStatus,
+  KIND_LABELS,
   PRIORITY_LABELS,
+  SERVICE_ICONS,
   STAGE_LABELS,
   STATUS_LABELS,
   type Task,
@@ -143,11 +147,16 @@ export const TaskCard = ({
     >
       <div className="row">
         <StatusBadge status={task.status} />
+        <span className="badge">{KIND_LABELS[task.kind]}</span>
         {task.priority === "urgent" || task.priority === "high" ? (
           <span className="badge">{PRIORITY_LABELS[task.priority]}</span>
         ) : null}
         <span className="spacer" />
-        <span className="hint">#{task.id}</span>
+        {task.unreadCount ? (
+          <span className="unread">{task.unreadCount}</span>
+        ) : (
+          <span className="hint">#{task.id}</span>
+        )}
       </div>
       <p className="card-title" style={{ marginTop: 6 }}>
         {task.title}
@@ -155,15 +164,38 @@ export const TaskCard = ({
       <div className="card-meta">
         {showDeal ? (
           <span>
-            🏗 {task.objectName} · {task.dealTitle}
+            {SERVICE_ICONS[task.service]} {task.objectName} · {task.dealTitle}
           </span>
         ) : null}
         <DueDate task={task} />
         {task.assigneeName ? <span>👤 {task.assigneeName}</span> : null}
-        {task.commentsCount ? <span>💬 {task.commentsCount}</span> : null}
+        {task.messagesCount ? <span>💬 {task.messagesCount}</span> : null}
       </div>
     </button>
   );
+};
+
+/** Short technical summary: "100 Мбит/с · 8 камер · архив 30 дн." */
+export const dealSpecs = (deal: Deal): string[] => {
+  const specs: string[] = [];
+  if (hasInternet(deal.service) && deal.internetSpeed) {
+    specs.push(`${deal.internetSpeed} Мбит/с`);
+  }
+  if (hasCctv(deal.service) && deal.camerasCount) {
+    specs.push(`${deal.camerasCount} камер`);
+  }
+  if (hasCctv(deal.service) && deal.archiveDays) {
+    specs.push(`архив ${deal.archiveDays} дн.`);
+  }
+  if (deal.monthlyFee) {
+    specs.push(`${formatMoney(deal.monthlyFee)}/мес`);
+  }
+  return specs;
+};
+
+const DealSpecs = ({ deal }: { deal: Deal }) => {
+  const specs = dealSpecs(deal);
+  return specs.length ? <span>⚙️ {specs.join(" · ")}</span> : null;
 };
 
 export const DealCard = ({
@@ -180,10 +212,11 @@ export const DealCard = ({
       {deal.amount ? <b>{formatMoney(deal.amount)}</b> : null}
     </div>
     <p className="card-title" style={{ marginTop: 6 }}>
-      {deal.title}
+      {SERVICE_ICONS[deal.service]} {deal.title}
     </p>
     <div className="card-meta">
       {showObject ? <span>🏗 {deal.objectName}</span> : null}
+      <DealSpecs deal={deal} />
       {deal.clientName ? <span>🤝 {deal.clientName}</span> : null}
       <span>
         ✅ задач: {deal.openTasksCount} открыто / {deal.tasksCount}
@@ -204,6 +237,7 @@ export const ObjectCard = ({ object }: { object: CrmObject }) => (
     </p>
     {object.address ? <div className="hint">📍 {object.address}</div> : null}
     <div className="card-meta">
+      {object.contactName ? <span>👷 {object.contactName}</span> : null}
       <span>💼 сделок: {object.dealsCount}</span>
       <span>✅ открытых задач: {object.openTasksCount}</span>
     </div>

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { TelegramProfile } from "./db.ts";
+import type { TelegramProfile } from "./repo.ts";
 
 export type InitData = {
   user: TelegramProfile;

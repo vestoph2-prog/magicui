@@ -1,15 +1,30 @@
 export const ROLES = ["admin", "manager", "client", "guest"] as const;
 export type Role = (typeof ROLES)[number];
 
+/** Pipeline of a connection / CCTV installation project. */
 export const DEAL_STAGES = [
   "lead",
-  "negotiation",
+  "survey",
+  "proposal",
   "contract",
-  "in_work",
+  "install",
+  "commissioning",
   "done",
   "lost",
 ] as const;
 export type DealStage = (typeof DEAL_STAGES)[number];
+
+export const SERVICES = ["internet", "cctv", "both"] as const;
+export type Service = (typeof SERVICES)[number];
+
+export const CONNECTION_TYPES = [
+  "",
+  "fiber",
+  "copper",
+  "radio",
+  "lte",
+] as const;
+export type ConnectionType = (typeof CONNECTION_TYPES)[number];
 
 export const TASK_STATUSES = [
   "new",
@@ -23,6 +38,17 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
+export const TASK_KINDS = [
+  "survey",
+  "install",
+  "setup",
+  "repair",
+  "access",
+  "docs",
+  "other",
+] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Администратор",
   manager: "Менеджер",
@@ -32,11 +58,33 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 export const STAGE_LABELS: Record<DealStage, string> = {
   lead: "Заявка",
-  negotiation: "Переговоры",
+  survey: "Обследование",
+  proposal: "КП / смета",
   contract: "Договор",
-  in_work: "В работе",
-  done: "Завершена",
+  install: "Монтаж",
+  commissioning: "Пусконаладка",
+  done: "Сдано",
   lost: "Отказ",
+};
+
+export const SERVICE_LABELS: Record<Service, string> = {
+  internet: "Интернет",
+  cctv: "Видеонаблюдение",
+  both: "Интернет + видео",
+};
+
+export const SERVICE_ICONS: Record<Service, string> = {
+  internet: "🌐",
+  cctv: "📹",
+  both: "🌐📹",
+};
+
+export const CONNECTION_LABELS: Record<ConnectionType, string> = {
+  "": "не указан",
+  fiber: "Оптика (GPON / FTTB)",
+  copper: "Медь (Ethernet)",
+  radio: "Радиомост",
+  lte: "LTE / 4G",
 };
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -54,6 +102,61 @@ export const PRIORITY_LABELS: Record<Priority, string> = {
   urgent: "Срочно",
 };
 
+export const KIND_LABELS: Record<TaskKind, string> = {
+  survey: "🔍 Обследование",
+  install: "🛠 Монтаж",
+  setup: "⚙️ Настройка",
+  repair: "🚨 Авария / ремонт",
+  access: "🔑 Доступы",
+  docs: "📄 Документы",
+  other: "💬 Другое",
+};
+
+type TaskTemplate = { kind: TaskKind; title: string };
+
+const INTERNET_TASKS: TaskTemplate[] = [
+  { kind: "install", title: "Прокладка кабеля / ввод в здание" },
+  {
+    kind: "install",
+    title: "Установка оборудования (ONT, роутер, коммутатор)",
+  },
+  { kind: "setup", title: "Настройка подключения и Wi-Fi, замер скорости" },
+];
+
+const CCTV_TASKS: TaskTemplate[] = [
+  { kind: "docs", title: "Схема расстановки камер" },
+  { kind: "install", title: "Прокладка кабеля и монтаж камер" },
+  { kind: "install", title: "Установка регистратора и жёстких дисков" },
+  {
+    kind: "setup",
+    title: "Настройка записи, архива и удалённого просмотра",
+  },
+  { kind: "access", title: "Передать доступы заказчику (приложение, пароли)" },
+];
+
+/** Standard work breakdown for each service, created in one tap on a deal. */
+export const TASK_TEMPLATES: Record<Service, TaskTemplate[]> = {
+  internet: [
+    { kind: "survey", title: "Обследование объекта и трассы кабеля" },
+    { kind: "docs", title: "КП и смета на подключение" },
+    ...INTERNET_TASKS,
+    { kind: "docs", title: "Акт выполненных работ, договор на обслуживание" },
+  ],
+  cctv: [
+    { kind: "survey", title: "Обследование: точки установки камер" },
+    { kind: "docs", title: "КП и смета на видеонаблюдение" },
+    ...CCTV_TASKS,
+    { kind: "docs", title: "Акт выполненных работ" },
+  ],
+  both: [
+    { kind: "survey", title: "Обследование объекта: трасса и точки камер" },
+    { kind: "docs", title: "КП и смета: интернет + видеонаблюдение" },
+    ...INTERNET_TASKS,
+    ...CCTV_TASKS,
+    { kind: "docs", title: "Акт выполненных работ, договор на обслуживание" },
+  ],
+};
+
 export type User = {
   id: number;
   firstName: string;
@@ -68,6 +171,9 @@ export type CrmObject = {
   name: string;
   address: string;
   description: string;
+  contactName: string;
+  contactPhone: string;
+  accessNotes: string;
   archived: boolean;
   createdAt: string;
   dealsCount: number;
@@ -79,9 +185,15 @@ export type Deal = {
   objectId: number;
   objectName: string;
   title: string;
+  service: Service;
   clientName: string;
   clientContact: string;
   amount: number;
+  monthlyFee: number;
+  internetSpeed: number;
+  connectionType: ConnectionType;
+  camerasCount: number;
+  archiveDays: number;
   stage: DealStage;
   notes: string;
   createdAt: string;
@@ -94,8 +206,11 @@ export type Task = {
   id: number;
   dealId: number;
   dealTitle: string;
+  service: Service;
   objectId: number;
   objectName: string;
+  objectAddress: string;
+  kind: TaskKind;
   title: string;
   description: string;
   status: TaskStatus;
@@ -107,15 +222,21 @@ export type Task = {
   createdByName: string;
   createdAt: string;
   updatedAt: string;
-  commentsCount: number;
+  messagesCount: number;
+  unreadCount: number;
 };
 
-export type Comment = {
+export type Message = {
   id: number;
   taskId: number;
   authorId: number;
   authorName: string;
   body: string;
+  attachment: string | null;
+  replyTo: number | null;
+  replyAuthor: string | null;
+  replyBody: string | null;
+  source: "app" | "telegram";
   createdAt: string;
 };
 
@@ -125,6 +246,26 @@ export type Activity = {
   actorName: string;
   text: string;
   createdAt: string;
+};
+
+export type ChatUpdate = {
+  messages: Message[];
+  activity: Activity[];
+  taskUpdatedAt: string;
+};
+
+export type InboxItem = {
+  taskId: number;
+  title: string;
+  status: TaskStatus;
+  kind: TaskKind;
+  objectName: string;
+  dealTitle: string;
+  lastAuthor: string;
+  lastBody: string;
+  lastHasAttachment: boolean;
+  lastAt: string;
+  unreadCount: number;
 };
 
 export type Invite = {
@@ -138,11 +279,14 @@ export type Dashboard = {
   dealsByStage: Record<DealStage, number>;
   overdue: number;
   myOpen: number;
+  urgentOpen: number;
   pipelineAmount: number;
+  monthlyRecurring: number;
 };
 
 export type TaskInput = {
   dealId: number;
+  kind?: TaskKind;
   title: string;
   description?: string;
   priority?: Priority;
@@ -153,16 +297,28 @@ export type TaskInput = {
 export type TaskPatch = Partial<
   Pick<
     Task,
-    "title" | "description" | "status" | "priority" | "dueDate" | "assigneeId"
+    | "kind"
+    | "title"
+    | "description"
+    | "status"
+    | "priority"
+    | "dueDate"
+    | "assigneeId"
   >
 >;
 
 export type DealInput = {
   objectId: number;
   title: string;
+  service?: Service;
   clientName?: string;
   clientContact?: string;
   amount?: number;
+  monthlyFee?: number;
+  internetSpeed?: number;
+  connectionType?: ConnectionType;
+  camerasCount?: number;
+  archiveDays?: number;
   stage?: DealStage;
   notes?: string;
 };
@@ -171,8 +327,17 @@ export type ObjectInput = {
   name: string;
   address?: string;
   description?: string;
+  contactName?: string;
+  contactPhone?: string;
+  accessNotes?: string;
   archived?: boolean;
 };
+
+export const hasInternet = (service: Service): boolean =>
+  service === "internet" || service === "both";
+
+export const hasCctv = (service: Service): boolean =>
+  service === "cctv" || service === "both";
 
 export const isStaff = (role: Role): boolean =>
   role === "admin" || role === "manager";

@@ -111,6 +111,12 @@ export const TasksScreen = ({ route }: { route: Route }) => {
           />
           <Stat
             danger
+            label="🚨 Срочно / аварии"
+            onClick={() => navigate("/tasks?status=open", true)}
+            value={stats.data.urgentOpen}
+          />
+          <Stat
+            danger
             label="Просрочено"
             onClick={() => navigate("/tasks?status=open", true)}
             value={stats.data.overdue}
@@ -126,7 +132,7 @@ export const TasksScreen = ({ route }: { route: Route }) => {
         aria-label="Поиск задач"
         className="search"
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 Поиск по задачам, сделкам, объектам"
+        placeholder="🔍 Задача, объект, адрес"
         type="search"
         value={search}
       />

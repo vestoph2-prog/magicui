@@ -3,9 +3,10 @@ import { resolve } from "node:path";
 import { AuthError, validateInitData } from "./auth.ts";
 import { startBot } from "./bot.ts";
 import { config } from "./config.ts";
-import { upsertUser } from "./db.ts";
 import { HttpError, readJson, sendJson, serveStatic } from "./http.ts";
+import { upsertUser } from "./repo.ts";
 import { router } from "./routes.ts";
+import { serveUpload } from "./uploads.ts";
 
 const DIST = resolve(config.root, "dist");
 
@@ -37,6 +38,10 @@ const authenticate = (req: IncomingMessage) => {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname.startsWith("/uploads/")) {
+    serveUpload(res, url.pathname.slice("/uploads/".length));
+    return;
+  }
   if (!url.pathname.startsWith("/api/")) {
     serveStatic(res, DIST, url.pathname);
     return;
@@ -47,7 +52,9 @@ const server = createServer(async (req, res) => {
       throw new HttpError(404, "Not found");
     }
     const { user, startParam } = authenticate(req);
-    const body = await readJson(req);
+    // Uploads stream the raw body themselves.
+    const isJson = req.headers["content-type"]?.includes("json") ?? false;
+    const body = isJson ? await readJson(req) : null;
     const result = await route.handler({
       req,
       url,

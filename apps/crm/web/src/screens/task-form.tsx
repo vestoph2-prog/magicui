@@ -3,10 +3,14 @@ import {
   type Deal,
   displayName,
   isStaff,
+  KIND_LABELS,
   PRIORITIES,
   PRIORITY_LABELS,
   type Priority,
+  SERVICE_ICONS,
+  TASK_KINDS,
   type Task,
+  type TaskKind,
   type User,
 } from "../../../shared/model.ts";
 import { api, useApi } from "../api.ts";
@@ -21,8 +25,19 @@ import {
   useSession,
 } from "../ui.tsx";
 
+const TITLE_HINTS: Record<TaskKind, string> = {
+  survey: "Например: осмотреть щитовую и трассу до 3 этажа",
+  install: "Например: смонтировать 4 камеры по периметру",
+  setup: "Например: настроить удалённый просмотр с телефона",
+  repair: "Например: нет интернета в офисе с утра",
+  access: "Например: выдать доступ к камерам охране",
+  docs: "Например: подготовить акт и счёт",
+  other: "Что нужно сделать",
+};
+
 type FormState = {
   dealId: string;
+  kind: TaskKind;
   title: string;
   description: string;
   priority: Priority;
@@ -32,6 +47,7 @@ type FormState = {
 
 const fromTask = (t: Task): FormState => ({
   dealId: String(t.dealId),
+  kind: t.kind,
   title: t.title,
   description: t.description,
   priority: t.priority,
@@ -76,11 +92,12 @@ export const TaskFormScreen = ({
 }) => {
   const user = useSession();
   const staff = isStaff(user.role);
-  const existing = useApi<{ task: Task }>(id ? `/tasks/${id}` : null);
+  const existing = useApi<Task>(id ? `/tasks/${id}` : null);
   const deals = useApi<Deal[]>("/deals");
   const users = useApi<User[]>(staff ? "/users" : null);
   const [form, setForm] = useState<FormState>({
     dealId: dealId ?? "",
+    kind: "other",
     title: "",
     description: "",
     priority: "normal",
@@ -92,7 +109,7 @@ export const TaskFormScreen = ({
 
   useEffect(() => {
     if (existing.data) {
-      setForm(fromTask(existing.data.task));
+      setForm(fromTask(existing.data));
     }
   }, [existing.data]);
 
@@ -128,6 +145,7 @@ export const TaskFormScreen = ({
     setError(null);
     const body = {
       dealId: Number(form.dealId),
+      kind: form.kind,
       title: form.title,
       description: form.description,
       priority: form.priority,
@@ -170,18 +188,44 @@ export const TaskFormScreen = ({
             <optgroup key={objectName} label={objectName}>
               {list.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.title}
+                  {SERVICE_ICONS[d.service]} {d.title}
                 </option>
               ))}
             </optgroup>
           ))}
         </select>
       </Field>
+      <div className="field">
+        <span>Тип задачи</span>
+        <div
+          className="chips"
+          style={{ flexWrap: "wrap", margin: 0, padding: 0 }}
+        >
+          {TASK_KINDS.map((k) => (
+            <button
+              aria-pressed={form.kind === k}
+              className="chip"
+              key={k}
+              onClick={() =>
+                setForm((f) => ({
+                  ...f,
+                  kind: k,
+                  // A breakdown is urgent unless said otherwise.
+                  priority: k === "repair" ? "urgent" : f.priority,
+                }))
+              }
+              type="button"
+            >
+              {KIND_LABELS[k]}
+            </button>
+          ))}
+        </div>
+      </div>
       <Field label="Что нужно сделать">
         <input
           maxLength={200}
           onChange={set("title")}
-          placeholder="Например: подготовить смету на кровлю"
+          placeholder={TITLE_HINTS[form.kind]}
           required
           value={form.title}
         />
@@ -190,7 +234,7 @@ export const TaskFormScreen = ({
         <textarea
           maxLength={5000}
           onChange={set("description")}
-          placeholder="Детали, требования, ссылки"
+          placeholder="Адрес, этаж/кабинет, контакт на месте, что именно не работает"
           value={form.description}
         />
       </Field>

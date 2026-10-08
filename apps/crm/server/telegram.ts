@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { config } from "./config.ts";
 
 const API = "https://api.telegram.org";
@@ -74,40 +75,90 @@ const openAppMarkup = (path = "") =>
       }
     : undefined;
 
+export type Outgoing = {
+  text: string;
+  /** Hash route inside the Mini App, e.g. `#/tasks/5`. */
+  appPath?: string;
+  /** Local photo file to attach. */
+  photoPath?: string;
+};
+
+const CAPTION_LIMIT = 1024;
+
+const sendPhoto = async (chatId: number, msg: Outgoing, photoPath: string) => {
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  form.set("caption", msg.text.slice(0, CAPTION_LIMIT));
+  form.set("parse_mode", "HTML");
+  const markup = openAppMarkup(msg.appPath);
+  if (markup) {
+    form.set("reply_markup", JSON.stringify(markup));
+  }
+  form.set("photo", new Blob([await readFile(photoPath)]), "photo.jpg");
+  const res = await fetch(`${API}/bot${config.botToken}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+  const data = (await res.json()) as TgResponse<{ message_id: number }>;
+  if (!data.ok) {
+    throw new Error(`Telegram sendPhoto: ${data.description ?? res.status}`);
+  }
+  return data.result;
+};
+
+/** Returns the Telegram message id, or null when delivery failed. */
 export const sendMessage = async (
   chatId: number,
-  text: string,
-  appPath = ""
-): Promise<void> => {
+  msg: Outgoing
+): Promise<number | null> => {
   if (!botEnabled()) {
-    return;
+    return null;
   }
   try {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      reply_markup: openAppMarkup(appPath),
-    });
+    const sent = msg.photoPath
+      ? await sendPhoto(chatId, msg, msg.photoPath)
+      : await tg<{ message_id: number }>("sendMessage", {
+          chat_id: chatId,
+          text: msg.text,
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+          reply_markup: openAppMarkup(msg.appPath),
+        });
+    return sent.message_id;
   } catch (error) {
     // The user may have never started the bot or blocked it — not fatal.
     process.stderr.write(`notify ${chatId} failed: ${String(error)}\n`);
+    return null;
   }
 };
 
-/** Sends the same message to several users, skipping the actor. */
+export type Delivered = { chatId: number; messageId: number };
+
+/** Sends the same message to several users (private chat id = user id). */
 export const notify = async (
-  userIds: Iterable<number | null | undefined>,
-  exceptId: number,
-  text: string,
-  appPath = ""
-): Promise<void> => {
-  const targets = new Set<number>();
-  for (const id of userIds) {
-    if (id && id !== exceptId) {
-      targets.add(id);
-    }
+  userIds: Iterable<number>,
+  msg: Outgoing
+): Promise<Delivered[]> => {
+  const targets = [...new Set(userIds)];
+  const results = await Promise.all(
+    targets.map(async (chatId) => {
+      const messageId = await sendMessage(chatId, msg);
+      return messageId ? { chatId, messageId } : null;
+    })
+  );
+  return results.filter((r): r is Delivered => r !== null);
+};
+
+export const downloadFile = async (fileId: string): Promise<Buffer> => {
+  const file = await tg<{ file_path?: string }>("getFile", { file_id: fileId });
+  if (!file.file_path) {
+    throw new Error("Telegram file has no path");
   }
-  await Promise.all([...targets].map((id) => sendMessage(id, text, appPath)));
+  const res = await fetch(
+    `${API}/file/bot${config.botToken}/${file.file_path}`
+  );
+  if (!res.ok) {
+    throw new Error(`Telegram file download failed: ${res.status}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
 };

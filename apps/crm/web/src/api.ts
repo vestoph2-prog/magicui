@@ -38,6 +38,27 @@ export class ApiError extends Error {
   }
 }
 
+const parseResponse = async <T>(res: Response): Promise<T> => {
+  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
+  }
+  return data as T;
+};
+
+/** Uploads an already-compressed image; returns the stored file name. */
+export const uploadImage = async (blob: Blob): Promise<string> => {
+  const res = await fetch("/api/uploads", {
+    method: "POST",
+    headers: { authorization: authHeader(), "content-type": blob.type },
+    body: blob,
+  });
+  return (await parseResponse<{ file: string }>(res)).file;
+};
+
+export const errorText = (e: unknown): string =>
+  e instanceof Error ? e.message : String(e);
+
 export const api = async <T>(
   path: string,
   options: { method?: string; body?: unknown } = {}
@@ -52,11 +73,7 @@ export const api = async <T>(
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) {
-    throw new ApiError(res.status, data.error ?? `Ошибка ${res.status}`);
-  }
-  return data as T;
+  return parseResponse<T>(res);
 };
 
 export const query = (

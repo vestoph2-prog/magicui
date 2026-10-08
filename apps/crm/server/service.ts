@@ -1,24 +1,39 @@
 import { randomBytes } from "node:crypto";
 import {
+  type Deal,
   displayName,
   isStaff,
+  KIND_LABELS,
+  type Message,
   PRIORITY_LABELS,
   ROLE_LABELS,
   type Role,
   STATUS_LABELS,
+  TASK_TEMPLATES,
   type Task,
   type TaskPatch,
   type User,
 } from "../shared/model.ts";
 import {
-  createInvite,
-  getUser,
+  addMessage,
+  getMessage,
+  linkTelegramMessage,
   logActivity,
+} from "./chat-repo.ts";
+import {
+  createInvite,
+  createTask,
+  getUser,
+  listTasks,
   memberIds,
   redeemInvite,
   setUserRole,
-} from "./db.ts";
-import { html, notify, startLink } from "./telegram.ts";
+  touchTask,
+} from "./repo.ts";
+import { html, notify, type Outgoing, startLink } from "./telegram.ts";
+import { uploadPath } from "./uploads.ts";
+
+/* --------------------------------- invites -------------------------------- */
 
 const INVITE_PREFIX = "inv_";
 
@@ -26,6 +41,13 @@ export const makeInvite = async (role: Role, createdBy: number) => {
   const code = randomBytes(9).toString("base64url");
   createInvite(code, role, createdBy);
   return { code, role, link: await startLink(`${INVITE_PREFIX}${code}`) };
+};
+
+const ROLE_RANK: Record<Role, number> = {
+  guest: 0,
+  client: 1,
+  manager: 2,
+  admin: 3,
 };
 
 /**
@@ -40,47 +62,73 @@ export const applyStartParam = (
     return user;
   }
   const invite = redeemInvite(param.slice(INVITE_PREFIX.length), user.id);
-  if (!invite) {
+  if (!(invite && ROLE_RANK[invite.role] > ROLE_RANK[user.role])) {
     return user;
   }
-  const rank: Record<Role, number> = {
-    guest: 0,
-    client: 1,
-    manager: 2,
-    admin: 3,
-  };
-  if (rank[invite.role] > rank[user.role]) {
-    setUserRole(user.id, invite.role);
-    notify(
-      memberIds(),
-      user.id,
-      html`👤 <b>${displayName(user)}</b> присоединился как ${ROLE_LABELS[invite.role]}`
-    ).catch(() => null);
-  }
+  setUserRole(user.id, invite.role);
+  notify(
+    memberIds().filter((id) => id !== user.id),
+    {
+      text: html`👤 <b>${displayName(user)}</b> присоединился как ${ROLE_LABELS[invite.role]}`,
+    }
+  ).catch(() => null);
   return getUser(user.id) ?? user;
 };
 
-const taskLine = (task: Task) =>
+/* -------------------------------- presence -------------------------------- */
+
+const PRESENCE_TTL_MS = 12_000;
+const presence = new Map<string, number>();
+
+/** Called on every chat poll: the user is looking at this task right now. */
+export const touchPresence = (taskId: number, userId: number): void => {
+  presence.set(`${taskId}:${userId}`, Date.now());
+};
+
+const isWatching = (taskId: number, userId: number): boolean =>
+  Date.now() - (presence.get(`${taskId}:${userId}`) ?? 0) < PRESENCE_TTL_MS;
+
+/* ------------------------------ notifications ----------------------------- */
+
+const REPLY_HINT =
+  "\n\n<i>↩️ Ответьте на это сообщение — ответ попадёт в чат задачи</i>";
+
+const taskHeader = (task: Task) =>
   html`<b>#${task.id} ${task.title}</b>\n🏗 ${task.objectName} · ${task.dealTitle}`;
 
-const taskPath = (task: Task) => `#/tasks/${task.id}`;
-
-const byline = (actor: User) => html`👤 ${displayName(actor)}`;
+/**
+ * Notifies everyone except the actor and people who have this chat open,
+ * and remembers the bot messages so Telegram replies land in the task chat.
+ */
+const notifyTask = async (task: Task, actorId: number, msg: Outgoing) => {
+  const recipients = memberIds().filter(
+    (id) => id !== actorId && !isWatching(task.id, id)
+  );
+  const delivered = await notify(recipients, {
+    appPath: `#/tasks/${task.id}`,
+    ...msg,
+    text: `${msg.text}${REPLY_HINT}`,
+  });
+  for (const d of delivered) {
+    linkTelegramMessage(d.chatId, d.messageId, task.id);
+  }
+};
 
 export const onTaskCreated = async (task: Task, actor: User) => {
   logActivity(task.id, actor.id, "создал(а) задачу");
   const header = isStaff(actor.role)
     ? "🆕 Новая задача"
-    : "🆕 Новая задача от заказчика";
-  const assignee = task.assigneeName
-    ? html`\n➡️ Исполнитель: ${task.assigneeName}`
-    : "";
-  await notify(
-    memberIds(),
-    actor.id,
-    `${header}\n${taskLine(task)}${assignee}\n${byline(actor)}`,
-    taskPath(task)
-  );
+    : "🆕 Новая заявка от заказчика";
+  const lines = [
+    `${header} · ${KIND_LABELS[task.kind]}`,
+    taskHeader(task),
+    task.description ? html`\n${task.description.slice(0, 500)}` : "",
+    task.assigneeName ? html`➡️ Исполнитель: ${task.assigneeName}` : "",
+    html`👤 ${displayName(actor)}`,
+  ];
+  await notifyTask(task, actor.id, {
+    text: lines.filter(Boolean).join("\n"),
+  });
 };
 
 const changed = <K extends keyof TaskPatch>(
@@ -103,6 +151,9 @@ export const describeChanges = (before: Task, patch: TaskPatch): string[] => {
   }
   if (patch.priority && changed(before, patch, "priority")) {
     changes.push(`приоритет: ${PRIORITY_LABELS[patch.priority]}`);
+  }
+  if (patch.kind && changed(before, patch, "kind")) {
+    changes.push(`тип: ${KIND_LABELS[patch.kind]}`);
   }
   if (changed(before, patch, "dueDate")) {
     changes.push(`срок: ${patch.dueDate ?? "без срока"}`);
@@ -131,20 +182,73 @@ export const onTaskUpdated = async (
     logActivity(task.id, actor.id, change);
   }
   const lines = changes.map((c) => html`• ${c}`).join("\n");
-  await notify(
-    memberIds(),
-    actor.id,
-    `✏️ ${taskLine(task)}\n${lines}\n${byline(actor)}`,
-    taskPath(task)
-  );
+  await notifyTask(task, actor.id, {
+    text: `✏️ ${taskHeader(task)}\n${lines}\n${html`👤 ${displayName(actor)}`}`,
+  });
 };
 
-export const onComment = async (task: Task, actor: User, body: string) => {
-  const preview = body.length > 300 ? `${body.slice(0, 300)}…` : body;
-  await notify(
-    memberIds(),
-    actor.id,
-    `💬 ${taskLine(task)}\n${html`<b>${displayName(actor)}:</b> ${preview}`}`,
-    taskPath(task)
+/* ---------------------------------- chat ---------------------------------- */
+
+export type ChatInput = {
+  body: string;
+  attachment?: string | null;
+  replyTo?: number | null;
+  source?: "app" | "telegram";
+};
+
+const MESSAGE_PREVIEW = 700;
+
+/** Posts into a task chat from the app or from a Telegram reply. */
+export const postMessage = async (
+  task: Task,
+  actor: User,
+  input: ChatInput
+): Promise<Message> => {
+  const reply = input.replyTo ? getMessage(input.replyTo) : undefined;
+  const id = addMessage({
+    taskId: task.id,
+    authorId: actor.id,
+    body: input.body,
+    attachment: input.attachment,
+    replyTo: reply?.taskId === task.id ? reply.id : null,
+    source: input.source,
+  });
+  touchTask(task.id);
+  const message = getMessage(id);
+  if (!message) {
+    throw new Error("Message was not saved");
+  }
+  const body =
+    input.body.length > MESSAGE_PREVIEW
+      ? `${input.body.slice(0, MESSAGE_PREVIEW)}…`
+      : input.body;
+  const quote = message.replyBody
+    ? html`\n<blockquote>${message.replyAuthor ?? ""}: ${message.replyBody}</blockquote>`
+    : "";
+  await notifyTask(task, actor.id, {
+    text: `💬 ${taskHeader(task)}${quote}\n${html`<b>${displayName(actor)}:</b> ${body || "📷 Фото"}`}`,
+    photoPath: input.attachment ? uploadPath(input.attachment) : undefined,
+  });
+  return message;
+};
+
+/* -------------------------------- templates ------------------------------- */
+
+/** Creates the standard work breakdown for the deal's service, skipping dupes. */
+export const applyTemplate = (deal: Deal, actor: User): number => {
+  const existing = new Set(
+    listTasks({ dealId: deal.id }, actor.id).map((t) => t.title)
   );
+  let created = 0;
+  for (const tpl of TASK_TEMPLATES[deal.service]) {
+    if (!existing.has(tpl.title)) {
+      const id = createTask(
+        { dealId: deal.id, kind: tpl.kind, title: tpl.title },
+        actor.id
+      );
+      logActivity(id, actor.id, "создал(а) задачу из шаблона");
+      created += 1;
+    }
+  }
+  return created;
 };
