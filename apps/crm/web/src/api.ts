@@ -48,7 +48,7 @@ const parseResponse = async <T>(res: Response): Promise<T> => {
 
 /** Uploads an already-compressed image; returns the stored file name. */
 export const uploadImage = async (blob: Blob): Promise<string> => {
-  const res = await fetch("/api/uploads", {
+  const res = await fetch("api/uploads", {
     method: "POST",
     headers: { authorization: authHeader(), "content-type": blob.type },
     body: blob,
@@ -59,11 +59,15 @@ export const uploadImage = async (blob: Blob): Promise<string> => {
 export const errorText = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+/**
+ * API paths are relative (no leading slash) so the app also works when
+ * served under a sub-path behind a reverse proxy, e.g. https://host/crm/.
+ */
 export const api = async <T>(
   path: string,
   options: { method?: string; body?: unknown } = {}
 ): Promise<T> => {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`api${path}`, {
     method: options.method ?? "GET",
     headers: {
       authorization: authHeader(),

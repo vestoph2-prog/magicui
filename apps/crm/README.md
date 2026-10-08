@@ -75,6 +75,22 @@ cd magicui/apps/crm
 
 ## Постоянный запуск
 
+### На своём VPS за nginx (app.сетьпро.рф/crm/)
+
+На сервере (Ubuntu, nginx и HTTPS для `app.сетьпро.рф` уже настроены) от root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vestoph2-prog/magicui/claude/telegram-crm-deals-l1md34/apps/crm/deploy/install.sh | sudo bash
+```
+
+Скрипт ставит Node.js 22 (если нужно), собирает приложение, спрашивает токен
+бота, создаёт сервис `setpro-crm` (слушает только 127.0.0.1:3100) и
+подключает в nginx `location /crm/` к существующему `server` для
+`app.сетьпро.рф` — остальной сайт не трогается, перед правкой делается бэкап
+конфига, при ошибке `nginx -t` он восстанавливается. Повторный запуск той же
+команды — обновление. Другой домен/путь: `DOMAIN=… BASE_PATH=/… bash install.sh`.
+
+
 Сервер — Node.js ≥ 22.18 без внешних зависимостей (встроенный `node:sqlite`),
 фронтенд — React + Vite.
 

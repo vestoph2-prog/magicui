@@ -74,7 +74,7 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(config.port, () => {
+server.listen(config.port, config.host, () => {
   process.stdout.write(`CRM запущена: http://localhost:${config.port}\n`);
   startBot().catch((error: unknown) => {
     process.stderr.write(`bot failed: ${String(error)}\n`);

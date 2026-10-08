@@ -22,4 +22,5 @@ export const compressImage = async (file: File): Promise<Blob> => {
   return blob ?? file;
 };
 
-export const uploadUrl = (name: string): string => `/uploads/${name}`;
+// Relative URLs so the app works under a sub-path such as /crm/.
+export const uploadUrl = (name: string): string => `uploads/${name}`;

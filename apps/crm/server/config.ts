@@ -14,6 +14,8 @@ const env = (name: string, fallback = ""): string =>
 export const config = {
   root: ROOT,
   port: Number(env("PORT", "3000")),
+  /** 127.0.0.1 behind nginx; 0.0.0.0 (default) in Docker. */
+  host: env("HOST", "0.0.0.0"),
   dbPath: resolve(ROOT, env("DB_PATH", "data/crm.db")),
   botToken: env("BOT_TOKEN"),
   /** Public HTTPS URL where this server is reachable (Mini App URL). */
