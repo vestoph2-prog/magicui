@@ -57,7 +57,23 @@
 принимает работу или возвращает её. Все изменения пишутся в историю задачи,
 а остальные участники получают сообщение от бота с кнопкой «Открыть CRM».
 
-## Запуск
+## Попробовать за 5 минут (на своём компьютере)
+
+Нужны [Node.js 22.18+](https://nodejs.org) и `cloudflared`
+(macOS: `brew install cloudflared`, Windows: `winget install Cloudflare.cloudflared`).
+
+```bash
+git clone -b claude/telegram-crm-deals-l1md34 https://github.com/vestoph2-prog/magicui.git
+cd magicui/apps/crm
+./try.sh                # спросит токен бота, соберёт и даст HTTPS-адрес
+```
+
+Дальше: откройте бота → `/start` → кнопка **CRM**. Первый вошедший —
+администратор; остальных зовите через «Команда» → «Создать ссылку».
+Пока скрипт работает, компьютер должен быть включён; адрес меняется при
+каждом запуске (бот обновляет кнопку сам), данные остаются в `data/`.
+
+## Постоянный запуск
 
 Сервер — Node.js ≥ 22.18 без внешних зависимостей (встроенный `node:sqlite`),
 фронтенд — React + Vite.
@@ -72,6 +88,17 @@ pnpm start              # API + статика + бот на :3000
 Нужен публичный **HTTPS**-адрес (Telegram открывает Mini App только по HTTPS):
 VPS + nginx/Caddy, Render, Railway, Fly.io и т.п. Пропишите его в
 `WEBAPP_URL` — при старте бот сам поставит кнопку меню «CRM».
+
+### Railway (без своего сервера)
+
+1. railway.app → New Project → Deploy from GitHub repo → этот репозиторий,
+   ветка `claude/telegram-crm-deals-l1md34`.
+2. Settings → Root Directory: `apps/crm` (соберётся по Dockerfile).
+3. Volumes → добавить том, путь монтирования `/data` (иначе база и фото
+   пропадут при перезапуске).
+4. Variables: `BOT_TOKEN`, `WEBAPP_URL` = выданный домен
+   (Settings → Networking → Generate Domain), например `https://crm-production.up.railway.app`.
+5. Deploy. Бот сам поставит кнопку «CRM».
 
 ### Docker
 
