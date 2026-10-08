@@ -123,7 +123,14 @@ CREATE TABLE tg_links (
 );
 `;
 
-const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2];
+/** v3: several photos per message (JSON array of upload names). */
+const SCHEMA_V3 = `
+ALTER TABLE comments ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]';
+UPDATE comments SET attachments = json_array(attachment) WHERE attachment IS NOT NULL;
+ALTER TABLE comments DROP COLUMN attachment;
+`;
+
+const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
 const migrate = (database: DatabaseSync) => {
   const { user_version: current } = database

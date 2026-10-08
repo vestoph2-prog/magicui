@@ -4,6 +4,7 @@ import {
   displayName,
   isStaff,
   KIND_LABELS,
+  MAX_PHOTOS_PER_MESSAGE,
   PRIORITIES,
   PRIORITY_LABELS,
   type Priority,
@@ -14,6 +15,12 @@ import {
   type User,
 } from "../../../shared/model.ts";
 import { api, useApi } from "../api.ts";
+import {
+  AttachButton,
+  DraftPreviews,
+  type PhotoDraft,
+  usePhotoDraft,
+} from "../chat/photos.tsx";
 import { navigate } from "../router.ts";
 import { haptic } from "../telegram.ts";
 import {
@@ -24,6 +31,71 @@ import {
   PageTitle,
   useSession,
 } from "../ui.tsx";
+
+const toBody = (form: FormState, staff: boolean) => ({
+  dealId: Number(form.dealId),
+  kind: form.kind,
+  title: form.title,
+  description: form.description,
+  priority: form.priority,
+  dueDate: form.dueDate || null,
+  ...(staff
+    ? { assigneeId: form.assigneeId ? Number(form.assigneeId) : null }
+    : {}),
+});
+
+const Pending = ({ error }: { error: string | null }) =>
+  error ? <ErrorBox message={error} /> : <Loading />;
+
+const KindPicker = ({
+  value,
+  onChange,
+}: {
+  value: TaskKind;
+  onChange: (kind: TaskKind) => void;
+}) => (
+  <div className="field">
+    <span>Тип задачи</span>
+    <div className="chips" style={{ flexWrap: "wrap", margin: 0, padding: 0 }}>
+      {TASK_KINDS.map((k) => (
+        <button
+          aria-pressed={value === k}
+          className="chip"
+          key={k}
+          onClick={() => onChange(k)}
+          type="button"
+        >
+          {KIND_LABELS[k]}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+/** Photos go into the task chat as the first message, visible to everyone. */
+const sendPhotos = async (taskId: number, draft: PhotoDraft) => {
+  if (!draft.photos.length) {
+    return;
+  }
+  const attachments = await draft.uploadAll();
+  await api(`/tasks/${taskId}/messages`, {
+    method: "POST",
+    body: { body: "", attachments },
+  });
+  draft.clear();
+};
+
+const PhotosField = ({ draft }: { draft: PhotoDraft }) => (
+  <div className="field">
+    <span>Фото (до {MAX_PHOTOS_PER_MESSAGE})</span>
+    <DraftPreviews draft={draft} />
+    <AttachButton
+      className="btn secondary small"
+      draft={draft}
+      label={draft.photos.length ? "📷 Добавить ещё" : "📷 Приложить фото"}
+    />
+  </div>
+);
 
 const TITLE_HINTS: Record<TaskKind, string> = {
   survey: "Например: осмотреть щитовую и трассу до 3 этажа",
@@ -104,6 +176,7 @@ export const TaskFormScreen = ({
     dueDate: "",
     assigneeId: "",
   });
+  const photoDraft = usePhotoDraft();
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -121,11 +194,7 @@ export const TaskFormScreen = ({
   }, [deals.data, form.dealId]);
 
   if ((id && !existing.data) || !deals.data) {
-    return existing.error || deals.error ? (
-      <ErrorBox message={existing.error ?? deals.error} />
-    ) : (
-      <Loading />
-    );
+    return <Pending error={existing.error ?? deals.error} />;
   }
 
   if (deals.data.length === 0) {
@@ -143,22 +212,13 @@ export const TaskFormScreen = ({
     e.preventDefault();
     setSaving(true);
     setError(null);
-    const body = {
-      dealId: Number(form.dealId),
-      kind: form.kind,
-      title: form.title,
-      description: form.description,
-      priority: form.priority,
-      dueDate: form.dueDate || null,
-      ...(staff
-        ? { assigneeId: form.assigneeId ? Number(form.assigneeId) : null }
-        : {}),
-    };
+    const body = toBody(form, staff);
     try {
       const task = await api<Task>(id ? `/tasks/${id}` : "/tasks", {
         method: id ? "PATCH" : "POST",
         body,
       });
+      await sendPhotos(task.id, photoDraft);
       haptic.success();
       navigate(`/tasks/${task.id}`, true);
     } catch (err) {
@@ -195,32 +255,17 @@ export const TaskFormScreen = ({
           ))}
         </select>
       </Field>
-      <div className="field">
-        <span>Тип задачи</span>
-        <div
-          className="chips"
-          style={{ flexWrap: "wrap", margin: 0, padding: 0 }}
-        >
-          {TASK_KINDS.map((k) => (
-            <button
-              aria-pressed={form.kind === k}
-              className="chip"
-              key={k}
-              onClick={() =>
-                setForm((f) => ({
-                  ...f,
-                  kind: k,
-                  // A breakdown is urgent unless said otherwise.
-                  priority: k === "repair" ? "urgent" : f.priority,
-                }))
-              }
-              type="button"
-            >
-              {KIND_LABELS[k]}
-            </button>
-          ))}
-        </div>
-      </div>
+      <KindPicker
+        onChange={(kind) =>
+          setForm((f) => ({
+            ...f,
+            kind,
+            // A breakdown is urgent unless said otherwise.
+            priority: kind === "repair" ? "urgent" : f.priority,
+          }))
+        }
+        value={form.kind}
+      />
       <Field label="Что нужно сделать">
         <input
           maxLength={200}
@@ -238,6 +283,7 @@ export const TaskFormScreen = ({
           value={form.description}
         />
       </Field>
+      <PhotosField draft={photoDraft} />
       <div className="row" style={{ alignItems: "stretch" }}>
         <div style={{ flex: 1, minWidth: 140 }}>
           <Field label="Приоритет">
@@ -268,7 +314,11 @@ export const TaskFormScreen = ({
           </select>
         </Field>
       ) : null}
-      <button className="btn block" disabled={saving} type="submit">
+      <button
+        className="btn block"
+        disabled={saving || photoDraft.preparing}
+        type="submit"
+      >
         {id ? "Сохранить" : "Создать задачу"}
       </button>
     </form>

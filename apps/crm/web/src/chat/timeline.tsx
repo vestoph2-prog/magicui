@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { Activity, Message, User } from "../../../shared/model.ts";
 import { api, errorText } from "../api.ts";
-import { uploadUrl } from "../image.ts";
 import { alertMessage, confirmAction, haptic } from "../telegram.ts";
+import { Lightbox, PhotoGrid } from "./photos.tsx";
 
 type Item =
   | { type: "message"; at: string; message: Message }
@@ -62,7 +62,7 @@ type BubbleProps = {
   onSelect: () => void;
   onReply: () => void;
   onDeleted: () => void;
-  onOpenImage: (src: string) => void;
+  onOpenImage: (message: Message, index: number) => void;
 };
 
 const Bubble = ({
@@ -103,15 +103,8 @@ const Bubble = ({
             <span>{m.replyBody}</span>
           </button>
         ) : null}
-        {m.attachment ? (
-          <button
-            className="link-btn"
-            onClick={() => onOpenImage(uploadUrl(m.attachment ?? ""))}
-            style={{ padding: 0 }}
-            type="button"
-          >
-            <img alt="Вложение к сообщению" src={uploadUrl(m.attachment)} />
-          </button>
+        {m.attachments.length ? (
+          <PhotoGrid files={m.attachments} onOpen={(i) => onOpenImage(m, i)} />
         ) : null}
         <button
           className="link-btn"
@@ -180,7 +173,15 @@ export const Timeline = ({
   onDeleted: (id: number) => void;
 }) => {
   const [selected, setSelected] = useState<number | null>(null);
-  const [image, setImage] = useState<string | null>(null);
+  const [viewer, setViewer] = useState<number | null>(null);
+  // All chat photos in order, so the viewer can swipe across messages.
+  const photos = messages.flatMap((m) =>
+    m.attachments.map((file) => ({ file, message: m }))
+  );
+  const openImage = (message: Message, index: number) => {
+    const file = message.attachments[index];
+    setViewer(photos.findIndex((p) => p.file === file));
+  };
   let lastDay = "";
 
   return (
@@ -212,7 +213,7 @@ export const Timeline = ({
             me={me}
             message={m}
             onDeleted={() => onDeleted(m.id)}
-            onOpenImage={setImage}
+            onOpenImage={openImage}
             onReply={() => {
               setSelected(null);
               onReply(m);
@@ -222,16 +223,19 @@ export const Timeline = ({
           />,
         ];
       })}
-      {image ? (
-        <button
-          aria-label="Закрыть фото"
-          className="lightbox"
-          onClick={() => setImage(null)}
-          type="button"
-        >
-          <img alt="Фото из чата" src={image} />
-        </button>
-      ) : null}
+      {viewer === null ? null : (
+        <Lightbox
+          caption={(i) => {
+            const p = photos[i];
+            return p
+              ? `· ${p.message.authorName}, ${timeFormat.format(new Date(p.message.createdAt))}`
+              : "";
+          }}
+          files={photos.map((p) => p.file)}
+          index={Math.max(0, viewer)}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 };

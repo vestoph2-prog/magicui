@@ -13,6 +13,7 @@ import {
 } from "../../../shared/model.ts";
 import { api, errorText, useApi } from "../api.ts";
 import { Composer } from "../chat/composer.tsx";
+import { Gallery } from "../chat/photos.tsx";
 import { Timeline } from "../chat/timeline.tsx";
 import { useChat } from "../chat/use-chat.ts";
 import { formatDateTime } from "../format.ts";
@@ -224,10 +225,12 @@ const TaskHead = ({
   task,
   onPatch,
   busy,
+  photos,
 }: {
   task: Task;
   onPatch: (patch: TaskPatch) => void;
   busy: boolean;
+  photos: string[];
 }) => {
   const user = useSession();
   const [open, setOpen] = useState(false);
@@ -272,12 +275,21 @@ const TaskHead = ({
         </div>
       ) : null}
       {open ? <TaskDetails onPatch={onPatch} task={task} /> : null}
+      {open && photos.length ? (
+        <>
+          <h3 className="section-title" style={{ margin: "14px 0 6px" }}>
+            Фото по задаче · {photos.length}
+          </h3>
+          <Gallery files={photos} />
+        </>
+      ) : null}
       <button
         className="toggle"
         onClick={() => setOpen((v) => !v)}
         type="button"
       >
         {open ? "Скрыть детали ▲" : "Детали задачи ▼"}
+        {!open && photos.length ? ` · 📷 ${photos.length}` : ""}
       </button>
     </div>
   );
@@ -339,7 +351,12 @@ export const TaskDetailScreen = ({ id }: { id: number }) => {
 
   return (
     <div className="chat-screen">
-      <TaskHead busy={busy} onPatch={patch} task={task.data} />
+      <TaskHead
+        busy={busy}
+        onPatch={patch}
+        photos={chat.messages.flatMap((m) => m.attachments)}
+        task={task.data}
+      />
       <Timeline
         activity={chat.activity}
         me={user}

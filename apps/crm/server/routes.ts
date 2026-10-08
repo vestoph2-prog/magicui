@@ -5,6 +5,7 @@ import {
   type DealInput,
   type DealStage,
   isStaff,
+  MAX_PHOTOS_PER_MESSAGE,
   type ObjectInput,
   PRIORITIES,
   type Priority,
@@ -26,6 +27,7 @@ import {
   listActivity,
   listMessages,
   markRead,
+  objectPhotos,
   totalUnread,
 } from "./chat-repo.ts";
 import { type Ctx, createRouter, HttpError } from "./http.ts";
@@ -46,6 +48,7 @@ import {
   listTasks,
   listUsers,
   setUserRole,
+  touchTask,
   updateDeal,
   updateObject,
   updateTask,
@@ -147,6 +150,11 @@ router.get("/api/objects/:id", (ctx) => {
   requireMember(ctx.user);
   const object = found(getObject(idParam(ctx)), "Объект");
   return { object, deals: listDeals({ objectId: object.id }) };
+});
+
+router.get("/api/objects/:id/photos", (ctx) => {
+  requireMember(ctx.user);
+  return objectPhotos(found(getObject(idParam(ctx)), "Объект").id);
 });
 
 router.post("/api/objects", (ctx) => {
@@ -349,13 +357,18 @@ router.post("/api/tasks/:id/messages", async (ctx) => {
   const task = taskOr404(ctx);
   const b = bodyOf(ctx);
   const body = str(b, "body", 4000) ?? "";
-  const attachment = isUploadName(b.attachment) ? b.attachment : null;
-  if (!(body || attachment)) {
+  const attachments = Array.isArray(b.attachments)
+    ? b.attachments.filter(isUploadName)
+    : [];
+  if (attachments.length > MAX_PHOTOS_PER_MESSAGE) {
+    throw new HttpError(400, `Не больше ${MAX_PHOTOS_PER_MESSAGE} фото за раз`);
+  }
+  if (!(body || attachments.length)) {
     throw new HttpError(400, "Пустое сообщение");
   }
   return await postMessage(task, ctx.user, {
     body,
-    attachment,
+    attachments,
     replyTo: num(b, "replyTo") ?? null,
   });
 });
@@ -367,6 +380,7 @@ router.delete("/api/messages/:id", (ctx) => {
     throw new HttpError(403, "Можно удалять только свои сообщения");
   }
   deleteMessage(message.id);
+  touchTask(message.taskId);
   return { ok: true };
 });
 

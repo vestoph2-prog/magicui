@@ -1,7 +1,17 @@
 import { displayName, isStaff, ROLE_LABELS } from "../shared/model.ts";
-import { taskForTelegramMessage } from "./chat-repo.ts";
+import {
+  appendAttachment,
+  getMessage,
+  taskForTelegramMessage,
+} from "./chat-repo.ts";
 import { config } from "./config.ts";
-import { getTask, getUser, type TelegramProfile, upsertUser } from "./repo.ts";
+import {
+  getTask,
+  getUser,
+  type TelegramProfile,
+  touchTask,
+  upsertUser,
+} from "./repo.ts";
 import { applyStartParam, postMessage } from "./service.ts";
 import { botEnabled, downloadFile, html, sendMessage, tg } from "./telegram.ts";
 import { MAX_UPLOAD_BYTES, saveImage } from "./uploads.ts";
@@ -13,6 +23,9 @@ type TgMessage = {
   text?: string;
   caption?: string;
   photo?: { file_id: string; file_size?: number }[];
+  /** "Send as file" keeps full quality; we accept it if it's an image. */
+  document?: { file_id: string; mime_type?: string; file_size?: number };
+  media_group_id?: string;
   reply_to_message?: { message_id: number };
 };
 
@@ -27,12 +40,58 @@ const react = (msg: TgMessage, emoji: string) =>
     reaction: [{ type: "emoji", emoji }],
   }).catch(() => null);
 
-const savePhoto = async (msg: TgMessage): Promise<string | null> => {
+const imageFileId = (msg: TgMessage): string | undefined => {
   // Telegram lists sizes ascending; take the biggest that fits our limit.
   const photo = msg.photo
     ?.filter((p) => (p.file_size ?? 0) <= MAX_UPLOAD_BYTES)
     .at(-1);
-  return photo ? saveImage(await downloadFile(photo.file_id)) : null;
+  if (photo) {
+    return photo.file_id;
+  }
+  const doc = msg.document;
+  const isImage = doc?.mime_type?.startsWith("image/") ?? false;
+  return isImage && (doc?.file_size ?? 0) <= MAX_UPLOAD_BYTES
+    ? doc?.file_id
+    : undefined;
+};
+
+const savePhoto = async (msg: TgMessage): Promise<string | null> => {
+  const fileId = imageFileId(msg);
+  return fileId ? saveImage(await downloadFile(fileId)) : null;
+};
+
+const ALBUM_TTL_MS = 60_000;
+
+/** Album id → chat message it was saved into, so later photos join it. */
+const albums = new Map<string, { messageId: number; at: number }>();
+
+const rememberAlbum = (groupId: string | undefined, messageId: number) => {
+  const now = Date.now();
+  for (const [key, value] of albums) {
+    if (now - value.at > ALBUM_TTL_MS) {
+      albums.delete(key);
+    }
+  }
+  if (groupId) {
+    albums.set(groupId, { messageId, at: now });
+  }
+};
+
+/** Second and later photos of an album go into the same chat message. */
+const handleAlbumPart = async (msg: TgMessage): Promise<boolean> => {
+  const album = msg.media_group_id ? albums.get(msg.media_group_id) : undefined;
+  if (!album) {
+    return false;
+  }
+  const file = await savePhoto(msg);
+  if (file) {
+    appendAttachment(album.messageId, file);
+    const message = getMessage(album.messageId);
+    if (message) {
+      touchTask(message.taskId);
+    }
+  }
+  return true;
 };
 
 /** A reply to a bot notification → message in that task's chat. */
@@ -50,15 +109,20 @@ const handleReply = async (msg: TgMessage, replyToId: number) => {
     await sendMessage(msg.chat.id, { text: "Задача уже удалена." });
     return;
   }
-  const attachment = await savePhoto(msg);
+  const photo = await savePhoto(msg);
   const body = (msg.text ?? msg.caption ?? "").trim().slice(0, 4000);
-  if (!(body || attachment)) {
+  if (!(body || photo)) {
     await sendMessage(msg.chat.id, {
       text: "В чат задачи можно отправить текст или фото.",
     });
     return;
   }
-  await postMessage(task, user, { body, attachment, source: "telegram" });
+  const message = await postMessage(task, user, {
+    body,
+    attachments: photo ? [photo] : [],
+    source: "telegram",
+  });
+  rememberAlbum(msg.media_group_id, message.id);
   await react(msg, "👍");
 };
 
@@ -92,6 +156,9 @@ const handleUpdate = async (update: Update) => {
   const start = msg.text ? START_RE.exec(msg.text) : null;
   if (start) {
     await handleStart(msg, start[1]);
+    return;
+  }
+  if (await handleAlbumPart(msg)) {
     return;
   }
   if (msg.reply_to_message) {

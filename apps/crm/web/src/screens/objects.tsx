@@ -3,9 +3,11 @@ import {
   type CrmObject,
   type Deal,
   isStaff,
+  type Photo,
   type Task,
 } from "../../../shared/model.ts";
 import { api, useApi } from "../api.ts";
+import { Gallery } from "../chat/photos.tsx";
 import { goBack, navigate } from "../router.ts";
 import { alertMessage, confirmAction, haptic } from "../telegram.ts";
 import {
@@ -89,6 +91,27 @@ const ObjectContacts = ({ object }: { object: CrmObject }) => (
     ) : null}
   </dl>
 );
+
+const ObjectPhotos = ({ objectId }: { objectId: number }) => {
+  const photos = useApi<Photo[]>(`/objects/${objectId}/photos`);
+  const list = photos.data ?? [];
+  if (!list.length) {
+    return null;
+  }
+  return (
+    <>
+      <SectionTitle>Фото с объекта · {list.length}</SectionTitle>
+      <Gallery
+        caption={(i) => {
+          const p = list[i];
+          return p ? `· #${p.taskId} ${p.taskTitle} · ${p.authorName}` : "";
+        }}
+        files={list.map((p) => p.file)}
+        limit={9}
+      />
+    </>
+  );
+};
 
 type ObjectData = { object: CrmObject; deals: Deal[] };
 
@@ -191,6 +214,7 @@ export const ObjectDetailScreen = ({ id }: { id: number }) => {
       </div>
       {deals.length === 0 ? <Empty>Сделок по объекту нет</Empty> : null}
 
+      <ObjectPhotos objectId={id} />
       {tasks.data?.length ? (
         <>
           <SectionTitle>Открытые задачи · {tasks.data.length}</SectionTitle>

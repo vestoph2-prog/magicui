@@ -34,21 +34,35 @@ export const useChat = (taskId: number, onTaskChanged: () => void): Chat => {
   const onChanged = useRef(onTaskChanged);
   onChanged.current = onTaskChanged;
 
+  const load = useCallback(
+    (after: number, afterActivity: number) =>
+      api<ChatUpdate>(
+        `/tasks/${taskId}/chat?after=${after}&afterActivity=${afterActivity}`
+      ),
+    [taskId]
+  );
+
   const fetchNew = useCallback(async () => {
     const c = cursor.current;
-    const update = await api<ChatUpdate>(
-      `/tasks/${taskId}/chat?after=${c.message}&afterActivity=${c.activity}`
-    );
-    c.message = update.messages.at(-1)?.id ?? c.message;
-    c.activity = update.activity.at(-1)?.id ?? c.activity;
-    if (c.updatedAt && c.updatedAt !== update.taskUpdatedAt) {
+    let update = await load(c.message, c.activity);
+    const changed = c.updatedAt !== "" && c.updatedAt !== update.taskUpdatedAt;
+    if (changed) {
+      // Something else changed (deleted message, album photo, task card):
+      // reload the whole chat rather than diffing.
+      update = await load(0, 0);
       onChanged.current();
     }
+    c.message = update.messages.at(-1)?.id ?? c.message;
+    c.activity = update.activity.at(-1)?.id ?? c.activity;
     c.updatedAt = update.taskUpdatedAt;
-    setMessages((list) => mergeById(list, update.messages));
-    setActivity((list) => mergeById(list, update.activity));
+    setMessages((list) =>
+      changed ? update.messages : mergeById(list, update.messages)
+    );
+    setActivity((list) =>
+      changed ? update.activity : mergeById(list, update.activity)
+    );
     setLoaded(true);
-  }, [taskId]);
+  }, [load]);
 
   useEffect(() => {
     let stopped = false;

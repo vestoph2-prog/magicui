@@ -232,7 +232,7 @@ export type Message = {
   authorId: number;
   authorName: string;
   body: string;
-  attachment: string | null;
+  attachments: string[];
   replyTo: number | null;
   replyAuthor: string | null;
   replyBody: string | null;
@@ -253,6 +253,17 @@ export type ChatUpdate = {
   activity: Activity[];
   taskUpdatedAt: string;
 };
+
+export type Photo = {
+  file: string;
+  messageId: number;
+  taskId: number;
+  taskTitle: string;
+  authorName: string;
+  createdAt: string;
+};
+
+export const MAX_PHOTOS_PER_MESSAGE = 10;
 
 export type InboxItem = {
   taskId: number;

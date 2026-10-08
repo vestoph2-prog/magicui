@@ -191,12 +191,16 @@ export const onTaskUpdated = async (
 
 export type ChatInput = {
   body: string;
-  attachment?: string | null;
+  attachments?: string[];
   replyTo?: number | null;
   source?: "app" | "telegram";
 };
 
 const MESSAGE_PREVIEW = 700;
+
+/** Telegram shows one photo with the button; the rest are in the app. */
+const photosNote = (count: number): string =>
+  count > 1 ? `\n📷 +${count - 1} фото — смотрите в CRM` : "";
 
 /** Posts into a task chat from the app or from a Telegram reply. */
 export const postMessage = async (
@@ -204,12 +208,13 @@ export const postMessage = async (
   actor: User,
   input: ChatInput
 ): Promise<Message> => {
+  const photos = input.attachments ?? [];
   const reply = input.replyTo ? getMessage(input.replyTo) : undefined;
   const id = addMessage({
     taskId: task.id,
     authorId: actor.id,
     body: input.body,
-    attachment: input.attachment,
+    attachments: input.attachments,
     replyTo: reply?.taskId === task.id ? reply.id : null,
     source: input.source,
   });
@@ -226,8 +231,8 @@ export const postMessage = async (
     ? html`\n<blockquote>${message.replyAuthor ?? ""}: ${message.replyBody}</blockquote>`
     : "";
   await notifyTask(task, actor.id, {
-    text: `💬 ${taskHeader(task)}${quote}\n${html`<b>${displayName(actor)}:</b> ${body || "📷 Фото"}`}`,
-    photoPath: input.attachment ? uploadPath(input.attachment) : undefined,
+    text: `💬 ${taskHeader(task)}${quote}\n${html`<b>${displayName(actor)}:</b> ${body || "📷 Фото"}`}${photosNote(photos.length)}`,
+    photoPath: photos[0] ? uploadPath(photos[0]) : undefined,
   });
   return message;
 };

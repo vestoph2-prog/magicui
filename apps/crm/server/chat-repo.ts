@@ -1,11 +1,11 @@
-import type { Activity, InboxItem, Message } from "../shared/model.ts";
+import type { Activity, InboxItem, Message, Photo } from "../shared/model.ts";
 import { all, nameSql, one, run } from "./db.ts";
 
 const MESSAGE_SELECT = `SELECT m.id, m.task_id AS taskId, m.author_id AS authorId,
-  ${nameSql("u")} AS authorName, m.body, m.attachment, m.reply_to AS replyTo,
+  ${nameSql("u")} AS authorName, m.body, m.attachments, m.reply_to AS replyTo,
   CASE WHEN p.id IS NULL THEN NULL ELSE ${nameSql("pu")} END AS replyAuthor,
   CASE WHEN p.id IS NULL THEN NULL
-    WHEN p.body = '' AND p.attachment IS NOT NULL THEN '📷 Фото'
+    WHEN p.body = '' AND p.attachments != '[]' THEN '📷 Фото'
     ELSE substr(p.body, 1, 140) END AS replyBody,
   m.source, m.created_at AS createdAt
   FROM comments m
@@ -13,34 +13,67 @@ const MESSAGE_SELECT = `SELECT m.id, m.task_id AS taskId, m.author_id AS authorI
   LEFT JOIN comments p ON p.id = m.reply_to
   LEFT JOIN users pu ON pu.id = p.author_id`;
 
+type MessageRow = Omit<Message, "attachments"> & { attachments: string };
+
+const toMessage = (row: MessageRow): Message => ({
+  ...row,
+  attachments: JSON.parse(row.attachments) as string[],
+});
+
 export const listMessages = (taskId: number, afterId = 0): Message[] =>
-  all<Message>(
+  all<MessageRow>(
     `${MESSAGE_SELECT} WHERE m.task_id = :taskId AND m.id > :afterId
      ORDER BY m.id LIMIT 1000`,
     { taskId, afterId }
-  );
+  ).map(toMessage);
 
-export const getMessage = (id: number): Message | undefined =>
-  one<Message>(`${MESSAGE_SELECT} WHERE m.id = :id`, { id });
+export const getMessage = (id: number): Message | undefined => {
+  const row = one<MessageRow>(`${MESSAGE_SELECT} WHERE m.id = :id`, { id });
+  return row ? toMessage(row) : undefined;
+};
+
+/** Adds a photo to an existing message (Telegram albums arrive one by one). */
+export const appendAttachment = (messageId: number, file: string): void => {
+  run(
+    `UPDATE comments SET attachments = json_insert(attachments, '$[#]', :file)
+     WHERE id = :messageId`,
+    { messageId, file }
+  );
+};
+
+/** Every photo from the chats of an object's tasks, newest first. */
+export const objectPhotos = (objectId: number): Photo[] =>
+  all<Photo>(
+    `SELECT j.value AS file, m.id AS messageId, t.id AS taskId,
+       t.title AS taskTitle, ${nameSql("u")} AS authorName,
+       m.created_at AS createdAt
+     FROM comments m, json_each(m.attachments) j
+     JOIN tasks t ON t.id = m.task_id
+     JOIN deals d ON d.id = t.deal_id
+     JOIN users u ON u.id = m.author_id
+     WHERE d.object_id = :objectId
+     ORDER BY m.id DESC, j.key LIMIT 300`,
+    { objectId }
+  );
 
 export type NewMessage = {
   taskId: number;
   authorId: number;
   body: string;
-  attachment?: string | null;
+  attachments?: string[];
   replyTo?: number | null;
   source?: "app" | "telegram";
 };
 
 export const addMessage = (m: NewMessage): number => {
   const id = run(
-    `INSERT INTO comments (task_id, author_id, body, attachment, reply_to, source)
-     VALUES (:taskId, :authorId, :body, :attachment, :replyTo, :source)`,
+    `INSERT INTO comments (task_id, author_id, body, attachments, reply_to, source)
+     VALUES (:taskId, :authorId, :body, :attachments, :replyTo, :source)`,
     {
       taskId: m.taskId,
       authorId: m.authorId,
       body: m.body,
-      attachment: m.attachment ?? null,
+      attachments: JSON.stringify(m.attachments ?? []),
       replyTo: m.replyTo ?? null,
       source: m.source ?? "app",
     }
@@ -81,7 +114,7 @@ export const inbox = (userId: number): InboxItem[] =>
   all<InboxRow>(
     `SELECT t.id AS taskId, t.title, t.status, t.kind, o.name AS objectName,
        d.title AS dealTitle, ${nameSql("u")} AS lastAuthor, m.body AS lastBody,
-       m.attachment IS NOT NULL AS lastHasAttachment, m.created_at AS lastAt,
+       m.attachments != '[]' AS lastHasAttachment, m.created_at AS lastAt,
        (SELECT count(*) FROM comments x WHERE x.task_id = t.id
          AND x.author_id != :uid AND x.id > coalesce((SELECT r.last_read_id
            FROM task_reads r WHERE r.task_id = t.id AND r.user_id = :uid), 0)

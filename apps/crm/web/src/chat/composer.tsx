@@ -1,14 +1,14 @@
 import {
-  type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
   useEffect,
   useRef,
   useState,
 } from "react";
 import type { Message } from "../../../shared/model.ts";
-import { api, errorText, uploadImage } from "../api.ts";
-import { compressImage } from "../image.ts";
+import { api, errorText } from "../api.ts";
 import { alertMessage, haptic } from "../telegram.ts";
+import { AttachButton, DraftPreviews, usePhotoDraft } from "./photos.tsx";
 
 const DRAFT_PREFIX = "crm-draft-";
 
@@ -41,10 +41,10 @@ type Props = {
 
 export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
   const [text, setText] = useState(() => loadDraft(taskId));
-  const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  const draft = usePhotoDraft();
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const hasPhotos = draft.photos.length > 0;
 
   useEffect(() => saveDraft(taskId, text), [taskId, text]);
 
@@ -64,31 +64,30 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
     }
   }, [text]);
 
-  const pickPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) {
-      return;
+  // Screenshots pasted from the clipboard become attachments.
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...e.clipboardData.files];
+    if (files.some((f) => f.type.startsWith("image/"))) {
+      e.preventDefault();
+      draft.addFiles(files).catch(() => null);
     }
-    const blob = await compressImage(file);
-    setPhoto({ blob, url: URL.createObjectURL(blob) });
   };
 
   const send = async () => {
     const body = text.trim();
-    if (!(body || photo) || sending) {
+    if (!(body || hasPhotos) || sending || draft.preparing) {
       return;
     }
     setSending(true);
     try {
-      const attachment = photo ? await uploadImage(photo.blob) : null;
+      const attachments = await draft.uploadAll();
       const message = await api<Message>(`/tasks/${taskId}/messages`, {
         method: "POST",
-        body: { body, attachment, replyTo: replyTo?.id ?? null },
+        body: { body, attachments, replyTo: replyTo?.id ?? null },
       });
       haptic.success();
       setText("");
-      setPhoto(null);
+      draft.clear();
       onCancelReply();
       onSent(message);
     } catch (err) {
@@ -126,44 +125,14 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
             </button>
           </div>
         ) : null}
-        {photo ? (
-          <div className="reply-bar">
-            <img
-              alt="Фото к отправке"
-              className="preview-img"
-              src={photo.url}
-            />
-            <span className="spacer" />
-            <button
-              aria-label="Убрать фото"
-              className="icon-btn"
-              onClick={() => setPhoto(null)}
-              type="button"
-            >
-              ✕
-            </button>
-          </div>
-        ) : null}
+        <DraftPreviews draft={draft} />
         <div className="row">
-          <button
-            aria-label="Прикрепить фото"
-            className="icon-btn"
-            onClick={() => fileInput.current?.click()}
-            type="button"
-          >
-            📎
-          </button>
-          <input
-            accept="image/*"
-            hidden
-            onChange={pickPhoto}
-            ref={fileInput}
-            type="file"
-          />
+          <AttachButton draft={draft} />
           <textarea
             aria-label="Сообщение"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             placeholder="Сообщение…"
             ref={input}
             rows={1}
@@ -172,7 +141,7 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
           <button
             aria-label="Отправить"
             className="icon-btn send"
-            disabled={sending || !(text.trim() || photo)}
+            disabled={sending || draft.preparing || !(text.trim() || hasPhotos)}
             onClick={send}
             type="button"
           >
