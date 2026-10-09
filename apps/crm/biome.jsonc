@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite"],
+  "files": {
+    "includes": ["**", "!data", "!dist"]
+  },
+  "linter": {
+    "rules": {
+      "performance": {
+        // Next.js-only rule; this is a Vite app without next/image.
+        "noImgElement": "off"
+      },
+      "nursery": {
+        // Chat photos have arbitrary sizes; CSS constrains them instead.
+        "useImageSize": "off"
+      },
+      "style": {
+        // Telegram Bot API and our DB enums are snake_case by contract.
+        "useNamingConvention": "off",
+        "noMagicNumbers": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      // Readable inline regexes and shared setup assertions are fine in tests.
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "performance": { "useTopLevelRegex": "off" },
+          "suspicious": { "noMisplacedAssertion": "off" }
+        }
+      }
+    }
+  ]
+}
