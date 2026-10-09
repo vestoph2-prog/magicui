@@ -63,6 +63,7 @@ export const TasksScreen = ({ route }: { route: Route }) => {
   const user = useSession();
   const status = (route.params.get("status") ?? "open") as StatusFilter;
   const mine = route.params.get("mine") === "1";
+  const visitToday = route.params.get("visit") === "today";
   const q = route.params.get("q") ?? "";
   const [search, setSearch] = useState(q);
 
@@ -81,6 +82,7 @@ export const TasksScreen = ({ route }: { route: Route }) => {
     `/tasks${query({
       status: status === "all" ? undefined : status,
       mine: mine ? 1 : undefined,
+      visit: visitToday ? "today" : undefined,
       q: q || undefined,
     })}`
   );
@@ -114,6 +116,11 @@ export const TasksScreen = ({ route }: { route: Route }) => {
             label="🚨 Срочно / аварии"
             onClick={() => navigate("/tasks?status=open", true)}
             value={stats.data.urgentOpen}
+          />
+          <Stat
+            label="🚗 Выезды сегодня"
+            onClick={() => navigate("/tasks?status=all&visit=today", true)}
+            value={stats.data.visitsToday}
           />
           <Stat
             danger
@@ -152,6 +159,17 @@ export const TasksScreen = ({ route }: { route: Route }) => {
           type="button"
         >
           👤 {mineLabel}
+        </button>
+        <button
+          aria-pressed={visitToday}
+          className="chip"
+          onClick={() => {
+            haptic.select();
+            setParam(route, "visit", visitToday ? "" : "today");
+          }}
+          type="button"
+        >
+          🚗 Выезды сегодня
         </button>
       </div>
       <ErrorBox message={tasks.error} />

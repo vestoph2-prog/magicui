@@ -20,5 +20,17 @@
         "noMagicNumbers": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      // Readable inline regexes and shared setup assertions are fine in tests.
+      "includes": ["test/**"],
+      "linter": {
+        "rules": {
+          "performance": { "useTopLevelRegex": "off" },
+          "suspicious": { "noMisplacedAssertion": "off" }
+        }
+      }
+    }
+  ]
 }

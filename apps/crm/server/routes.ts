@@ -26,27 +26,35 @@ import {
   inbox,
   listActivity,
   listMessages,
+  logActivity,
   markRead,
   objectPhotos,
   totalUnread,
 } from "./chat-repo.ts";
+import { config } from "./config.ts";
 import { type Ctx, createRouter, HttpError } from "./http.ts";
 import {
+  addChecklistItem,
   createDeal,
   createObject,
   createTask,
   dashboard,
+  deleteChecklistItem,
   deleteDeal,
   deleteObject,
   deleteTask,
+  getChecklistItem,
   getDeal,
   getObject,
   getTask,
   getUser,
+  listChecklist,
   listDeals,
   listObjects,
   listTasks,
   listUsers,
+  renameChecklistItem,
+  setChecklistDone,
   setUserRole,
   touchTask,
   updateDeal,
@@ -63,6 +71,7 @@ import {
   postMessage,
   touchPresence,
 } from "./service.ts";
+import { dayBoundsUtc, localParts } from "./time.ts";
 import { isUploadName, readUpload } from "./uploads.ts";
 import {
   type Body,
@@ -71,6 +80,7 @@ import {
   found,
   idParam,
   nullableDate,
+  nullableDateTime,
   nullableUser,
   num,
   oneOf,
@@ -83,6 +93,14 @@ import {
 } from "./validate.ts";
 
 export const router = createRouter();
+
+const todayVisits = () => {
+  const { start, end } = dayBoundsUtc(
+    localParts(new Date(), config.timeZone).date,
+    config.timeZone
+  );
+  return { visitFrom: start, visitTo: end };
+};
 
 const taskOr404 = (ctx: Ctx) =>
   found(getTask(idParam(ctx), ctx.user.id), "Задача");
@@ -265,6 +283,7 @@ router.get("/api/tasks", (ctx) => {
           : undefined,
       q: q.get("q") ?? undefined,
       ...(q.get("mine") === "1" ? mineFilter : {}),
+      ...(q.get("visit") === "today" ? todayVisits() : {}),
     },
     ctx.user.id
   );
@@ -291,6 +310,7 @@ router.post("/api/tasks", async (ctx) => {
       oneOf<Priority>(b, "priority", PRIORITIES) ??
       (kind === "repair" ? "urgent" : undefined),
     dueDate: nullableDate(b, "dueDate"),
+    visitAt: isStaff(ctx.user.role) ? nullableDateTime(b, "visitAt") : null,
     assigneeId: isStaff(ctx.user.role) ? nullableUser(b, "assigneeId") : null,
   };
   const id = createTask(input, ctx.user.id);
@@ -310,6 +330,7 @@ router.patch("/api/tasks/:id", async (ctx) => {
     status: oneOf<TaskStatus>(b, "status", TASK_STATUSES),
     priority: oneOf<Priority>(b, "priority", PRIORITIES),
     dueDate: nullableDate(b, "dueDate"),
+    visitAt: nullableDateTime(b, "visitAt"),
     assigneeId: nullableUser(b, "assigneeId"),
   };
   if (!isStaff(ctx.user.role)) {
@@ -326,6 +347,50 @@ router.delete("/api/tasks/:id", (ctx) => {
   requireStaff(ctx.user);
   deleteTask(taskOr404(ctx).id);
   return { ok: true };
+});
+
+/* -------------------------------- checklist ------------------------------- */
+
+const checklistItemOr404 = (ctx: Ctx) =>
+  found(getChecklistItem(idParam(ctx)), "Пункт");
+
+router.get("/api/tasks/:id/checklist", (ctx) => {
+  requireMember(ctx.user);
+  return listChecklist(taskOr404(ctx).id);
+});
+
+router.post("/api/tasks/:id/checklist", (ctx) => {
+  requireStaff(ctx.user);
+  const task = taskOr404(ctx);
+  addChecklistItem(task.id, requiredStr(bodyOf(ctx), "text", 300));
+  touchTask(task.id);
+  return listChecklist(task.id);
+});
+
+router.patch("/api/checklist/:id", (ctx) => {
+  requireStaff(ctx.user);
+  const item = checklistItemOr404(ctx);
+  const b = bodyOf(ctx);
+  if (typeof b.done === "boolean" && b.done !== item.done) {
+    setChecklistDone(item.id, b.done, ctx.user.id);
+    if (b.done) {
+      logActivity(item.taskId, ctx.user.id, `✔ ${item.text}`);
+    }
+  }
+  const text = str(b, "text", 300);
+  if (text) {
+    renameChecklistItem(item.id, text);
+  }
+  touchTask(item.taskId);
+  return listChecklist(item.taskId);
+});
+
+router.delete("/api/checklist/:id", (ctx) => {
+  requireStaff(ctx.user);
+  const item = checklistItemOr404(ctx);
+  deleteChecklistItem(item.id);
+  touchTask(item.taskId);
+  return listChecklist(item.taskId);
 });
 
 /* ---------------------------------- chat ---------------------------------- */

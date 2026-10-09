@@ -6,6 +6,7 @@ import { config } from "./config.ts";
 import { HttpError, readJson, sendJson, serveStatic } from "./http.ts";
 import { upsertUser } from "./repo.ts";
 import { router } from "./routes.ts";
+import { startScheduler } from "./scheduler.ts";
 import { serveUpload } from "./uploads.ts";
 
 const DIST = resolve(config.root, "dist");
@@ -76,6 +77,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.port, config.host, () => {
   process.stdout.write(`CRM запущена: http://localhost:${config.port}\n`);
+  startScheduler();
   startBot().catch((error: unknown) => {
     process.stderr.write(`bot failed: ${String(error)}\n`);
   });

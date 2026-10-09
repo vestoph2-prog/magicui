@@ -173,7 +173,7 @@ button.card:active {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -981,4 +981,81 @@ button.card:active {
   color: #fff;
   font-size: 20px;
   font-weight: 600;
+}
+
+.checklist {
+  margin-top: 12px;
+  border-top: 1px solid var(--separator);
+  padding-top: 10px;
+}
+
+.checklist ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.checklist label {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 14px;
+}
+
+.checklist input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.checklist li.done label > span {
+  color: var(--hint);
+  text-decoration: line-through;
+}
+
+.progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.2s;
+}
+
+.checklist-add input {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 8px 10px;
+  margin-top: 6px;
+  outline: none;
+}
+
+.visit {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 14px;
 }

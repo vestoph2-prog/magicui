@@ -12,7 +12,8 @@
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format:check": "biome format .",
-    "format:fix": "biome format --write ."
+    "format:fix": "biome format --write .",
+    "test": "node --test --disable-warning=ExperimentalWarning test/*.test.ts"
   },
   "dependencies": {
     "react": "19.1.1",

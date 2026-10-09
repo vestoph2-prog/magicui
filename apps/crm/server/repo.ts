@@ -1,4 +1,5 @@
 import {
+  type ChecklistItem,
   type CrmObject,
   type Dashboard,
   DEAL_STAGES,
@@ -25,6 +26,7 @@ import {
   run,
   whereSql,
 } from "./db.ts";
+import { dayBoundsUtc, localParts } from "./time.ts";
 
 /* ---------------------------------- users --------------------------------- */
 
@@ -255,7 +257,8 @@ const touchDeal = (id: number): void => {
 const TASK_SELECT = `SELECT t.id, t.deal_id AS dealId, d.title AS dealTitle,
   d.service, d.object_id AS objectId, o.name AS objectName,
   o.address AS objectAddress, t.kind, t.title, t.description, t.status,
-  t.priority, t.due_date AS dueDate, t.assignee_id AS assigneeId,
+  t.priority, t.due_date AS dueDate, t.visit_at AS visitAt,
+  t.assignee_id AS assigneeId,
   CASE WHEN a.id IS NULL THEN NULL ELSE ${nameSql("a")} END AS assigneeName,
   t.created_by AS createdBy, coalesce(${nameSql("c")}, '') AS createdByName,
   t.created_at AS createdAt, t.updated_at AS updatedAt,
@@ -263,7 +266,10 @@ const TASK_SELECT = `SELECT t.id, t.deal_id AS dealId, d.title AS dealTitle,
   (SELECT count(*) FROM comments m WHERE m.task_id = t.id
     AND m.author_id != :uid
     AND m.id > coalesce((SELECT r.last_read_id FROM task_reads r
-      WHERE r.task_id = t.id AND r.user_id = :uid), 0)) AS unreadCount
+      WHERE r.task_id = t.id AND r.user_id = :uid), 0)) AS unreadCount,
+  (SELECT count(*) FROM checklist_items i WHERE i.task_id = t.id) AS checklistTotal,
+  (SELECT count(*) FROM checklist_items i WHERE i.task_id = t.id
+    AND i.done = 1) AS checklistDone
   FROM tasks t
   JOIN deals d ON d.id = t.deal_id
   JOIN objects o ON o.id = d.object_id
@@ -276,6 +282,9 @@ export type TaskFilter = {
   status?: TaskStatus | "open";
   assigneeId?: number;
   createdBy?: number;
+  /** Visit window [visitFrom, visitTo) in ISO UTC. */
+  visitFrom?: string;
+  visitTo?: string;
   q?: string;
 };
 
@@ -294,6 +303,11 @@ const taskWhere = (filter: TaskFilter): { clause: string; params: Params } => {
       where.push(`${column} = :${key}`);
       params[key] = value;
     }
+  }
+  if (filter.visitFrom && filter.visitTo) {
+    where.push("t.visit_at >= :visitFrom AND t.visit_at < :visitTo");
+    params.visitFrom = filter.visitFrom;
+    params.visitTo = filter.visitTo;
   }
   if (filter.status === "open") {
     where.push("t.status NOT IN ('done', 'canceled')");
@@ -331,9 +345,9 @@ export const getTask = (id: number, viewerId: number): Task | undefined =>
 export const createTask = (input: TaskInput, createdBy: number): number => {
   const id = run(
     `INSERT INTO tasks (deal_id, kind, title, description, priority, due_date,
-       assignee_id, created_by)
+       visit_at, assignee_id, created_by)
      VALUES (:dealId, :kind, :title, :description, :priority, :dueDate,
-       :assigneeId, :createdBy)`,
+       :visitAt, :assigneeId, :createdBy)`,
     {
       dealId: input.dealId,
       kind: input.kind ?? "other",
@@ -341,10 +355,14 @@ export const createTask = (input: TaskInput, createdBy: number): number => {
       description: input.description ?? "",
       priority: input.priority ?? "normal",
       dueDate: input.dueDate ?? null,
+      visitAt: input.visitAt ?? null,
       assigneeId: input.assigneeId ?? null,
       createdBy,
     }
   );
+  for (const text of input.checklist ?? []) {
+    addChecklistItem(id, text);
+  }
   touchDeal(input.dealId);
   return id;
 };
@@ -358,7 +376,7 @@ export const updateTask = (id: number, patch: TaskPatch): void => {
   run(
     `UPDATE tasks SET kind = :kind, title = :title, description = :description,
        status = :status, priority = :priority, due_date = :dueDate,
-       assignee_id = :assigneeId, updated_at = ${NOW_SQL}
+       visit_at = :visitAt, assignee_id = :assigneeId, updated_at = ${NOW_SQL}
      WHERE id = :id`,
     {
       id,
@@ -368,10 +386,97 @@ export const updateTask = (id: number, patch: TaskPatch): void => {
       status: next.status,
       priority: next.priority,
       dueDate: next.dueDate,
+      visitAt: next.visitAt,
       assigneeId: next.assigneeId,
     }
   );
   touchDeal(t.dealId);
+};
+
+/* -------------------------------- checklist ------------------------------- */
+
+const CHECKLIST_SELECT = `SELECT i.id, i.task_id AS taskId, i.text, i.done,
+  CASE WHEN u.id IS NULL THEN NULL ELSE ${nameSql("u")} END AS doneByName,
+  i.done_at AS doneAt
+  FROM checklist_items i LEFT JOIN users u ON u.id = i.done_by`;
+
+type ChecklistRow = Omit<ChecklistItem, "done"> & { done: number };
+
+const toItem = (r: ChecklistRow): ChecklistItem => ({
+  ...r,
+  done: r.done === 1,
+});
+
+export const listChecklist = (taskId: number): ChecklistItem[] =>
+  all<ChecklistRow>(
+    `${CHECKLIST_SELECT} WHERE i.task_id = :taskId ORDER BY i.position, i.id`,
+    { taskId }
+  ).map(toItem);
+
+export const getChecklistItem = (id: number): ChecklistItem | undefined => {
+  const row = one<ChecklistRow>(`${CHECKLIST_SELECT} WHERE i.id = :id`, { id });
+  return row ? toItem(row) : undefined;
+};
+
+export const addChecklistItem = (taskId: number, text: string): number =>
+  run(
+    `INSERT INTO checklist_items (task_id, text, position)
+     VALUES (:taskId, :text, (SELECT coalesce(max(position), 0) + 1
+       FROM checklist_items WHERE task_id = :taskId))`,
+    { taskId, text }
+  );
+
+export const setChecklistDone = (
+  id: number,
+  done: boolean,
+  userId: number
+): void => {
+  run(
+    `UPDATE checklist_items SET done = :done,
+       done_by = CASE WHEN :done = 1 THEN :userId END,
+       done_at = CASE WHEN :done = 1 THEN ${NOW_SQL} END
+     WHERE id = :id`,
+    { id, done: done ? 1 : 0, userId }
+  );
+};
+
+export const renameChecklistItem = (id: number, text: string): void => {
+  run("UPDATE checklist_items SET text = :text WHERE id = :id", { id, text });
+};
+
+export const deleteChecklistItem = (id: number): void => {
+  run("DELETE FROM checklist_items WHERE id = :id", { id });
+};
+
+/* -------------------------------- reminders ------------------------------- */
+
+/** Open tasks with a visit in [from, to). */
+export const visitsBetween = (from: string, to: string): Task[] =>
+  all<Task>(
+    `${TASK_SELECT} WHERE t.visit_at >= :from AND t.visit_at < :to
+     AND t.status NOT IN ('done', 'canceled') ORDER BY t.visit_at`,
+    { from, to, uid: 0 }
+  );
+
+/** Open tasks due before or on `date` (local), for the morning digest. */
+export const dueUpTo = (date: string): Task[] =>
+  all<Task>(
+    `${TASK_SELECT} WHERE t.due_date <= :date
+     AND t.status NOT IN ('done', 'canceled') ORDER BY t.due_date, t.id`,
+    { date, uid: 0 }
+  );
+
+/** Records a reminder; false if it was already sent (idempotent). */
+export const claimReminder = (key: string): boolean => {
+  const before = one<{ n: number }>(
+    "SELECT count(*) AS n FROM reminders_sent WHERE key = :key",
+    { key }
+  );
+  if (before?.n) {
+    return false;
+  }
+  run("INSERT INTO reminders_sent (key) VALUES (:key)", { key });
+  return true;
 };
 
 /** Bumps `updated_at` so open chats notice that the task card changed. */
@@ -442,6 +547,7 @@ const ACTIVE_DEAL = "stage NOT IN ('done', 'lost')";
 export const dashboard = (user: User): Dashboard => {
   // For the customer "mine" means tasks they raised; for staff — assigned ones.
   const mineColumn = user.role === "client" ? "created_by" : "assignee_id";
+  const today = localParts(new Date(), config.timeZone).date;
   return {
     tasksByStatus: countBy(
       TASK_STATUSES,
@@ -452,7 +558,13 @@ export const dashboard = (user: User): Dashboard => {
       all("SELECT stage AS key, count(*) AS n FROM deals GROUP BY stage")
     ),
     overdue: scalar(
-      `SELECT count(*) AS n FROM tasks WHERE ${OPEN} AND due_date < date('now')`
+      `SELECT count(*) AS n FROM tasks WHERE ${OPEN} AND due_date < :today`,
+      { today }
+    ),
+    visitsToday: scalar(
+      `SELECT count(*) AS n FROM tasks WHERE ${OPEN}
+       AND visit_at >= :start AND visit_at < :end`,
+      dayBoundsUtc(today, config.timeZone)
     ),
     myOpen: scalar(
       `SELECT count(*) AS n FROM tasks WHERE ${OPEN} AND ${mineColumn} = :uid`,

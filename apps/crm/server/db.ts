@@ -130,7 +130,30 @@ UPDATE comments SET attachments = json_array(attachment) WHERE attachment IS NOT
 ALTER TABLE comments DROP COLUMN attachment;
 `;
 
-const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+/** v4: technician visits, checklists, sent-reminder log. */
+const SCHEMA_V4 = `
+ALTER TABLE tasks ADD COLUMN visit_at TEXT;
+CREATE INDEX idx_tasks_visit ON tasks(visit_at);
+
+CREATE TABLE checklist_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  done_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  done_at TEXT,
+  position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_checklist_task ON checklist_items(task_id);
+
+-- One row per reminder actually sent, so restarts never send duplicates.
+CREATE TABLE reminders_sent (
+  key TEXT PRIMARY KEY,
+  sent_at TEXT NOT NULL DEFAULT (${NOW_SQL})
+);
+`;
+
+const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
 
 const migrate = (database: DatabaseSync) => {
   const { user_version: current } = database

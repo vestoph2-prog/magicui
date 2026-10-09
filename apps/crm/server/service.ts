@@ -20,6 +20,7 @@ import {
   linkTelegramMessage,
   logActivity,
 } from "./chat-repo.ts";
+import { config } from "./config.ts";
 import {
   createInvite,
   createTask,
@@ -31,6 +32,7 @@ import {
   touchTask,
 } from "./repo.ts";
 import { html, notify, type Outgoing, startLink } from "./telegram.ts";
+import { formatLocal } from "./time.ts";
 import { uploadPath } from "./uploads.ts";
 
 /* --------------------------------- invites -------------------------------- */
@@ -100,7 +102,11 @@ const taskHeader = (task: Task) =>
  * Notifies everyone except the actor and people who have this chat open,
  * and remembers the bot messages so Telegram replies land in the task chat.
  */
-const notifyTask = async (task: Task, actorId: number, msg: Outgoing) => {
+export const notifyTask = async (
+  task: Task,
+  actorId: number,
+  msg: Outgoing
+) => {
   const recipients = memberIds().filter(
     (id) => id !== actorId && !isWatching(task.id, id)
   );
@@ -157,6 +163,13 @@ export const describeChanges = (before: Task, patch: TaskPatch): string[] => {
   }
   if (changed(before, patch, "dueDate")) {
     changes.push(`срок: ${patch.dueDate ?? "без срока"}`);
+  }
+  if (changed(before, patch, "visitAt")) {
+    changes.push(
+      patch.visitAt
+        ? `🚗 выезд: ${formatLocal(patch.visitAt, config.timeZone)}`
+        : "выезд отменён"
+    );
   }
   if (changed(before, patch, "assigneeId")) {
     changes.push(`исполнитель: ${assigneeLabel(patch.assigneeId)}`);
@@ -248,7 +261,12 @@ export const applyTemplate = (deal: Deal, actor: User): number => {
   for (const tpl of TASK_TEMPLATES[deal.service]) {
     if (!existing.has(tpl.title)) {
       const id = createTask(
-        { dealId: deal.id, kind: tpl.kind, title: tpl.title },
+        {
+          dealId: deal.id,
+          kind: tpl.kind,
+          title: tpl.title,
+          checklist: tpl.checklist,
+        },
         actor.id
       );
       logActivity(id, actor.id, "создал(а) задачу из шаблона");

@@ -79,6 +79,25 @@ export const nullableDate = (
   return b[key] as string;
 };
 
+/** ISO timestamp (any offset) normalised to UTC; `null` clears it. */
+export const nullableDateTime = (
+  b: Body,
+  key: string
+): string | null | undefined => {
+  if (!has(b, key)) {
+    return;
+  }
+  if (b[key] === null || b[key] === "") {
+    return null;
+  }
+  const time =
+    typeof b[key] === "string" ? Date.parse(b[key] as string) : Number.NaN;
+  if (Number.isNaN(time)) {
+    throw new HttpError(400, "Некорректные дата и время");
+  }
+  return new Date(time).toISOString();
+};
+
 export const nullableUser = (
   b: Body,
   key: string

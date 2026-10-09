@@ -33,3 +33,30 @@ export const formatDateTime = (iso: string): string =>
 
 export const isOverdue = (due: string | null): boolean =>
   Boolean(due && due < today());
+
+const visitFormat = new Intl.DateTimeFormat("ru-RU", {
+  weekday: "short",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** "пт, 10.10, 13:00" in the viewer's local time. */
+export const formatVisit = (iso: string): string =>
+  visitFormat.format(new Date(iso));
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** ISO UTC → value for <input type="datetime-local"> in local time. */
+export const toLocalInput = (iso: string | null): string => {
+  if (!iso) {
+    return "";
+  }
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/** <input type="datetime-local"> value (local) → ISO UTC, or null. */
+export const fromLocalInput = (value: string): string | null =>
+  value ? new Date(value).toISOString() : null;

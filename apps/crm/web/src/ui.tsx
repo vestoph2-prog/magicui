@@ -15,7 +15,7 @@ import {
   type TaskStatus,
   type User,
 } from "../../shared/model.ts";
-import { formatDue, formatMoney, isOverdue } from "./format.ts";
+import { formatDue, formatMoney, formatVisit, isOverdue } from "./format.ts";
 import { navigate } from "./router.ts";
 import { haptic } from "./telegram.ts";
 
@@ -168,6 +168,14 @@ export const TaskCard = ({
           </span>
         ) : null}
         <DueDate task={task} />
+        {task.visitAt && isOpenStatus(task.status) ? (
+          <span>🚗 {formatVisit(task.visitAt)}</span>
+        ) : null}
+        {task.checklistTotal ? (
+          <span>
+            ☑️ {task.checklistDone}/{task.checklistTotal}
+          </span>
+        ) : null}
         {task.assigneeName ? <span>👤 {task.assigneeName}</span> : null}
         {task.messagesCount ? <span>💬 {task.messagesCount}</span> : null}
       </div>

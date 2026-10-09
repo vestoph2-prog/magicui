@@ -16,7 +16,14 @@ export const config = {
   port: Number(env("PORT", "3000")),
   /** 127.0.0.1 behind nginx; 0.0.0.0 (default) in Docker. */
   host: env("HOST", "0.0.0.0"),
-  dbPath: resolve(ROOT, env("DB_PATH", "data/crm.db")),
+  dbPath:
+    env("DB_PATH") === ":memory:"
+      ? ":memory:"
+      : resolve(ROOT, env("DB_PATH", "data/crm.db")),
+  /** Time zone for the morning digest and "today" in reminders. */
+  timeZone: env("TZ_NAME", "Europe/Moscow"),
+  /** Local hour (0–23) to send the morning digest; empty disables it. */
+  digestHour: env("DIGEST_HOUR", "8"),
   botToken: env("BOT_TOKEN"),
   /** Public HTTPS URL where this server is reachable (Mini App URL). */
   webAppUrl: env("WEBAPP_URL"),

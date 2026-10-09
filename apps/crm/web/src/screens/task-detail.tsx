@@ -16,7 +16,7 @@ import { Composer } from "../chat/composer.tsx";
 import { Gallery } from "../chat/photos.tsx";
 import { Timeline } from "../chat/timeline.tsx";
 import { useChat } from "../chat/use-chat.ts";
-import { formatDateTime } from "../format.ts";
+import { formatDateTime, formatVisit } from "../format.ts";
 import { goBack } from "../router.ts";
 import { alertMessage, confirmAction, haptic } from "../telegram.ts";
 import {
@@ -27,6 +27,7 @@ import {
   StatusBadge,
   useSession,
 } from "../ui.tsx";
+import { Checklist } from "./checklist.tsx";
 
 type Action = {
   label: string;
@@ -226,11 +227,13 @@ const TaskHead = ({
   onPatch,
   busy,
   photos,
+  onChanged,
 }: {
   task: Task;
   onPatch: (patch: TaskPatch) => void;
   busy: boolean;
   photos: string[];
+  onChanged: () => void;
 }) => {
   const user = useSession();
   const [open, setOpen] = useState(false);
@@ -259,6 +262,9 @@ const TaskHead = ({
           </>
         ) : null}
       </div>
+      {task.visitAt ? (
+        <div className="visit">🚗 Выезд: {formatVisit(task.visitAt)}</div>
+      ) : null}
       {actions.length ? (
         <div className="actions">
           {actions.map((a) => (
@@ -274,6 +280,12 @@ const TaskHead = ({
           ))}
         </div>
       ) : null}
+      <Checklist
+        editable={isStaff(user.role)}
+        onChanged={onChanged}
+        taskId={task.id}
+        version={task.updatedAt}
+      />
       {open ? <TaskDetails onPatch={onPatch} task={task} /> : null}
       {open && photos.length ? (
         <>
@@ -353,6 +365,7 @@ export const TaskDetailScreen = ({ id }: { id: number }) => {
     <div className="chat-screen">
       <TaskHead
         busy={busy}
+        onChanged={task.reload}
         onPatch={patch}
         photos={chat.messages.flatMap((m) => m.attachments)}
         task={task.data}

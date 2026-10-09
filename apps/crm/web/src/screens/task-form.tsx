@@ -21,6 +21,7 @@ import {
   type PhotoDraft,
   usePhotoDraft,
 } from "../chat/photos.tsx";
+import { fromLocalInput, toLocalInput } from "../format.ts";
 import { navigate } from "../router.ts";
 import { haptic } from "../telegram.ts";
 import {
@@ -40,7 +41,10 @@ const toBody = (form: FormState, staff: boolean) => ({
   priority: form.priority,
   dueDate: form.dueDate || null,
   ...(staff
-    ? { assigneeId: form.assigneeId ? Number(form.assigneeId) : null }
+    ? {
+        assigneeId: form.assigneeId ? Number(form.assigneeId) : null,
+        visitAt: fromLocalInput(form.visitAt),
+      }
     : {}),
 });
 
@@ -114,6 +118,7 @@ type FormState = {
   description: string;
   priority: Priority;
   dueDate: string;
+  visitAt: string;
   assigneeId: string;
 };
 
@@ -124,6 +129,7 @@ const fromTask = (t: Task): FormState => ({
   description: t.description,
   priority: t.priority,
   dueDate: t.dueDate ?? "",
+  visitAt: toLocalInput(t.visitAt),
   assigneeId: t.assigneeId ? String(t.assigneeId) : "",
 });
 
@@ -174,6 +180,7 @@ export const TaskFormScreen = ({
     description: "",
     priority: "normal",
     dueDate: "",
+    visitAt: "",
     assigneeId: "",
   });
   const photoDraft = usePhotoDraft();
@@ -303,16 +310,25 @@ export const TaskFormScreen = ({
         </div>
       </div>
       {staff ? (
-        <Field label="Исполнитель">
-          <select onChange={set("assigneeId")} value={form.assigneeId}>
-            <option value="">— не назначен —</option>
-            {staffUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {displayName(u)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <>
+          <Field label="Исполнитель">
+            <select onChange={set("assigneeId")} value={form.assigneeId}>
+              <option value="">— не назначен —</option>
+              {staffUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {displayName(u)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="🚗 Выезд на объект (напомню за час)">
+            <input
+              onChange={set("visitAt")}
+              type="datetime-local"
+              value={form.visitAt}
+            />
+          </Field>
+        </>
       ) : null}
       <button
         className="btn block"

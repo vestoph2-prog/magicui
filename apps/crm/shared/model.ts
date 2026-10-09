@@ -112,26 +112,80 @@ export const KIND_LABELS: Record<TaskKind, string> = {
   other: "💬 Другое",
 };
 
-type TaskTemplate = { kind: TaskKind; title: string };
+type TaskTemplate = { kind: TaskKind; title: string; checklist?: string[] };
 
 const INTERNET_TASKS: TaskTemplate[] = [
-  { kind: "install", title: "Прокладка кабеля / ввод в здание" },
+  {
+    kind: "install",
+    title: "Прокладка кабеля / ввод в здание",
+    checklist: [
+      "Согласован маршрут трассы",
+      "Кабель проложен и закреплён",
+      "Кабель промаркирован с обеих сторон",
+      "Ввод в помещение загерметизирован",
+    ],
+  },
   {
     kind: "install",
     title: "Установка оборудования (ONT, роутер, коммутатор)",
+    checklist: [
+      "Оборудование закреплено, есть вентиляция",
+      "Подключено питание (желательно через ИБП)",
+      "Записаны серийные номера и MAC",
+    ],
   },
-  { kind: "setup", title: "Настройка подключения и Wi-Fi, замер скорости" },
+  {
+    kind: "setup",
+    title: "Настройка подключения и Wi-Fi, замер скорости",
+    checklist: [
+      "Подключение к провайдеру поднято",
+      "Wi-Fi: имя сети и пароль согласованы с заказчиком",
+      "Пароль администратора роутера сменён",
+      "Замер скорости сохранён (скриншот в чат)",
+    ],
+  },
 ];
 
 const CCTV_TASKS: TaskTemplate[] = [
   { kind: "docs", title: "Схема расстановки камер" },
-  { kind: "install", title: "Прокладка кабеля и монтаж камер" },
-  { kind: "install", title: "Установка регистратора и жёстких дисков" },
+  {
+    kind: "install",
+    title: "Прокладка кабеля и монтаж камер",
+    checklist: [
+      "Камеры закреплены, углы обзора согласованы",
+      "Разъёмы защищены от влаги",
+      "Кабели промаркированы",
+      "PoE / питание проверено на каждой камере",
+    ],
+  },
+  {
+    kind: "install",
+    title: "Установка регистратора и жёстких дисков",
+    checklist: [
+      "HDD установлен и отформатирован",
+      "Регистратор подключён к ИБП",
+      "Время и часовой пояс синхронизированы",
+    ],
+  },
   {
     kind: "setup",
     title: "Настройка записи, архива и удалённого просмотра",
+    checklist: [
+      "Запись по расписанию / движению настроена",
+      "Глубина архива соответствует договору",
+      "Удалённый просмотр с телефона работает",
+      "Пароли по умолчанию сменены",
+    ],
   },
-  { kind: "access", title: "Передать доступы заказчику (приложение, пароли)" },
+  {
+    kind: "access",
+    title: "Передать доступы заказчику (приложение, пароли)",
+    checklist: [
+      "Приложение установлено у заказчика",
+      "Заказчик показан просмотр архива",
+      "Доступы переданы под подпись",
+    ],
+  },
 ];
 
 /** Standard work breakdown for each service, created in one tap on a deal. */
@@ -222,8 +276,21 @@ export type Task = {
   createdByName: string;
   createdAt: string;
   updatedAt: string;
+  /** Technician visit, ISO UTC timestamp. */
+  visitAt: string | null;
   messagesCount: number;
   unreadCount: number;
+  checklistTotal: number;
+  checklistDone: number;
+};
+
+export type ChecklistItem = {
+  id: number;
+  taskId: number;
+  text: string;
+  done: boolean;
+  doneByName: string | null;
+  doneAt: string | null;
 };
 
 export type Message = {
@@ -291,6 +358,7 @@ export type Dashboard = {
   overdue: number;
   myOpen: number;
   urgentOpen: number;
+  visitsToday: number;
   pipelineAmount: number;
   monthlyRecurring: number;
 };
@@ -302,7 +370,9 @@ export type TaskInput = {
   description?: string;
   priority?: Priority;
   dueDate?: string | null;
+  visitAt?: string | null;
   assigneeId?: number | null;
+  checklist?: string[];
 };
 
 export type TaskPatch = Partial<
@@ -314,6 +384,7 @@ export type TaskPatch = Partial<
     | "status"
     | "priority"
     | "dueDate"
+    | "visitAt"
     | "assigneeId"
   >
 >;
