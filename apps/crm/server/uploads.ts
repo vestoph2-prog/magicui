@@ -6,16 +6,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { config } from "./config.ts";
 import { HttpError } from "./http.ts";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
-const UPLOAD_DIR = resolve(
-  config.dbPath === ":memory:" ? config.root : dirname(config.dbPath),
-  "uploads"
-);
+// Next to the database; an in-memory DB (tests) gets a throwaway temp dir.
+const UPLOAD_DIR =
+  config.dbPath === ":memory:"
+    ? mkdtempSync(join(tmpdir(), "crm-uploads-"))
+    : resolve(dirname(config.dbPath), "uploads");
 
 /** 128-bit random names: the URL itself is the access token. */
 const NAME_RE = /^[a-f0-9]{32}\.(jpg|png|webp)$/;
