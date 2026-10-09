@@ -3,6 +3,7 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   writeFileSync,
 } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
