@@ -3,10 +3,12 @@ import { resolve } from "node:path";
 import { AuthError, validateInitData } from "./auth.ts";
 import { startBot } from "./bot.ts";
 import { config } from "./config.ts";
+import { one } from "./db.ts";
 import { HttpError, readJson, sendJson, serveStatic } from "./http.ts";
 import { upsertUser } from "./repo.ts";
 import { router } from "./routes.ts";
 import { startScheduler } from "./scheduler.ts";
+import { getBotUsername } from "./telegram.ts";
 import { serveUpload } from "./uploads.ts";
 
 const DIST = resolve(config.root, "dist");
@@ -37,6 +39,21 @@ const authenticate = (req: IncomingMessage) => {
   throw new HttpError(401, "Откройте приложение из Telegram");
 };
 
+/**
+ * Unauthenticated liveness probe for the installer and monitoring. Reveals
+ * nothing private: just that this is the CRM and whether the bot is reachable.
+ */
+const health = async () => {
+  const bot = await getBotUsername().catch(() => "");
+  return {
+    app: "setpro-crm",
+    ok: one<{ ok: number }>("SELECT 1 AS ok")?.ok === 1,
+    bot: bot ? `@${bot}` : null,
+    webAppUrl: config.webAppUrl || null,
+    uptimeSec: Math.round(process.uptime()),
+  };
+};
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (url.pathname.startsWith("/uploads/")) {
@@ -45,6 +62,10 @@ const server = createServer(async (req, res) => {
   }
   if (!url.pathname.startsWith("/api/")) {
     serveStatic(res, DIST, url.pathname);
+    return;
+  }
+  if (url.pathname === "/api/health") {
+    sendJson(res, 200, await health());
     return;
   }
   try {

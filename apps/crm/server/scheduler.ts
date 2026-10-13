@@ -5,6 +5,7 @@ import {
   type Task,
   type User,
 } from "../shared/model.ts";
+import { runBackup } from "./backup.ts";
 import { config } from "./config.ts";
 import {
   claimReminder,
@@ -22,6 +23,7 @@ const VISIT_LEAD_MS = 60 * 60_000;
 /** Digest goes out within this many hours after DIGEST_HOUR, never at night. */
 const DIGEST_WINDOW_H = 3;
 const LIST_LIMIT = 8;
+const BACKUP_HOUR = 3;
 
 const timeOnly = (iso: string) =>
   formatLocal(iso, config.timeZone).split(", ").at(-1) ?? "";
@@ -128,6 +130,15 @@ const sendDigest = async (now: Date) => {
   }
 };
 
+/** Nightly backup between 03:00 and 06:00 local time, once per day. */
+const backupAtNight = (now: Date) => {
+  const local = localParts(now, config.timeZone);
+  const night = local.hour >= BACKUP_HOUR && local.hour < BACKUP_HOUR + 3;
+  if (night && claimReminder(`backup:${local.date}`)) {
+    runBackup();
+  }
+};
+
 const tick = async () => {
   const now = new Date();
   await remindVisits(now).catch((e: unknown) => {
@@ -136,6 +147,11 @@ const tick = async () => {
   await sendDigest(now).catch((e: unknown) => {
     process.stderr.write(`digest failed: ${String(e)}\n`);
   });
+  try {
+    backupAtNight(now);
+  } catch (e) {
+    process.stderr.write(`backup failed: ${String(e)}\n`);
+  }
 };
 
 export const startScheduler = (): void => {
