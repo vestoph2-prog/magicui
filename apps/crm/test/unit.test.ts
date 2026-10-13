@@ -129,3 +129,24 @@ describe("morning digest", () => {
     assert.equal(buildDigest(user(3, "client"), empty), null);
   });
 });
+
+const { findMatches } = await import("../web/src/chat/match.ts");
+
+describe("chat search", () => {
+  const msg = (id: number, body: string, authorName = "Мария") =>
+    ({ id, body, authorName }) as Parameters<typeof findMatches>[0][number];
+  const chat = [
+    msg(1, "Порт 12 на коммутаторе отключён"),
+    msg(2, "Включили ПОРТ 12, проверьте", "Иван"),
+    msg(3, "Спасибо!", "Иван"),
+  ];
+
+  it("finds text case-insensitively, including Cyrillic", () => {
+    assert.deepEqual(findMatches(chat, "порт 12"), [1, 2]);
+  });
+
+  it("matches author names and ignores blank queries", () => {
+    assert.deepEqual(findMatches(chat, "иван"), [2, 3]);
+    assert.deepEqual(findMatches(chat, "   "), []);
+  });
+});

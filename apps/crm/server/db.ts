@@ -171,7 +171,19 @@ CREATE TABLE equipment (
 CREATE INDEX idx_equipment_object ON equipment(object_id);
 `;
 
-const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+/** v6: editable chat messages. */
+const SCHEMA_V6 = `
+ALTER TABLE comments ADD COLUMN edited_at TEXT;
+`;
+
+const MIGRATIONS = [
+  SCHEMA_V1,
+  SCHEMA_V2,
+  SCHEMA_V3,
+  SCHEMA_V4,
+  SCHEMA_V5,
+  SCHEMA_V6,
+];
 
 const migrate = (database: DatabaseSync) => {
   const { user_version: current } = database

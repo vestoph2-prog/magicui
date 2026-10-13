@@ -1,5 +1,5 @@
 import type { Activity, InboxItem, Message, Photo } from "../shared/model.ts";
-import { all, nameSql, one, run } from "./db.ts";
+import { all, NOW_SQL, nameSql, one, run } from "./db.ts";
 
 const MESSAGE_SELECT = `SELECT m.id, m.task_id AS taskId, m.author_id AS authorId,
   ${nameSql("u")} AS authorName, m.body, m.attachments, m.reply_to AS replyTo,
@@ -7,7 +7,7 @@ const MESSAGE_SELECT = `SELECT m.id, m.task_id AS taskId, m.author_id AS authorI
   CASE WHEN p.id IS NULL THEN NULL
     WHEN p.body = '' AND p.attachments != '[]' THEN '📷 Фото'
     ELSE substr(p.body, 1, 140) END AS replyBody,
-  m.source, m.created_at AS createdAt
+  m.source, m.created_at AS createdAt, m.edited_at AS editedAt
   FROM comments m
   JOIN users u ON u.id = m.author_id
   LEFT JOIN comments p ON p.id = m.reply_to
@@ -81,6 +81,13 @@ export const addMessage = (m: NewMessage): number => {
   // Your own message is read by definition.
   markRead(m.authorId, m.taskId, id);
   return id;
+};
+
+export const editMessage = (id: number, body: string): void => {
+  run(
+    `UPDATE comments SET body = :body, edited_at = ${NOW_SQL} WHERE id = :id`,
+    { id, body }
+  );
 };
 
 export const deleteMessage = (id: number): void => {

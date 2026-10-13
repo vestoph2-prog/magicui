@@ -257,6 +257,32 @@ describe("chat", () => {
     assert.equal(traversal.status, 404);
   });
 
+  it("lets authors edit their messages and marks them edited", async () => {
+    const mine = await client<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "Приезжайте в 10" },
+    });
+    assert.equal(mine.data.editedAt, null);
+    const edited = await client<Message>(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "Приезжайте в 11" },
+    });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.data.body, "Приезжайте в 11");
+    assert.ok(edited.data.editedAt);
+
+    const byOther = await manager(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "чужое" },
+    });
+    assert.equal(byOther.status, 403, "even staff cannot rewrite others");
+    const blank = await client(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "   " },
+    });
+    assert.equal(blank.status, 400);
+  });
+
   it("lets people delete only their own messages", async () => {
     const mine = await client<Message>(`/api/tasks/${task.id}/messages`, {
       method: "POST",

@@ -45,7 +45,7 @@ const merge = (messages: Message[], activity: Activity[]): Item[] =>
     })),
   ].sort((a, b) => a.at.localeCompare(b.at));
 
-const scrollToMessage = (id: number) => {
+export const scrollToMessage = (id: number) => {
   const el = document.getElementById(`msg-${id}`);
   if (!el) {
     return;
@@ -62,21 +62,27 @@ type BubbleProps = {
   onSelect: () => void;
   onReply: () => void;
   onDeleted: () => void;
+  onEdit: () => void;
   onOpenImage: (message: Message, index: number) => void;
+  match: boolean;
 };
 
-const Bubble = ({
+const BubbleActions = ({
   message: m,
   me,
-  selected,
-  onSelect,
   onReply,
+  onEdit,
+  onDone,
   onDeleted,
-  onOpenImage,
-}: BubbleProps) => {
+}: {
+  message: Message;
+  me: User;
+  onReply: () => void;
+  onEdit: () => void;
+  onDone: () => void;
+  onDeleted: () => void;
+}) => {
   const mine = m.authorId === me.id;
-  const canDelete = mine || me.role === "admin";
-
   const remove = async () => {
     if (!(await confirmAction("Удалить сообщение?"))) {
       return;
@@ -88,10 +94,64 @@ const Bubble = ({
       alertMessage(errorText(e));
     }
   };
+  return (
+    <div className="bubble-actions">
+      <button className="btn small secondary" onClick={onReply} type="button">
+        ↩️ Ответить
+      </button>
+      {mine && m.body ? (
+        <button
+          aria-label="Изменить"
+          className="btn small secondary"
+          onClick={onEdit}
+          type="button"
+        >
+          ✏️
+        </button>
+      ) : null}
+      {m.body ? (
+        <button
+          aria-label="Копировать"
+          className="btn small secondary"
+          onClick={() => {
+            navigator.clipboard?.writeText(m.body).catch(() => null);
+            haptic.success();
+            onDone();
+          }}
+          type="button"
+        >
+          📋
+        </button>
+      ) : null}
+      {mine || me.role === "admin" ? (
+        <button
+          aria-label="Удалить"
+          className="btn small danger"
+          onClick={remove}
+          type="button"
+        >
+          🗑
+        </button>
+      ) : null}
+    </div>
+  );
+};
 
+const Bubble = ({
+  message: m,
+  me,
+  selected,
+  onSelect,
+  onReply,
+  onDeleted,
+  onEdit,
+  onOpenImage,
+  match,
+}: BubbleProps) => {
+  const mine = m.authorId === me.id;
   return (
     <div className={mine ? "bubble-row mine" : "bubble-row"}>
-      <div className="bubble" id={`msg-${m.id}`}>
+      <div className={match ? "bubble match" : "bubble"} id={`msg-${m.id}`}>
         {mine ? null : <div className="author">{m.authorName}</div>}
         {m.replyTo && m.replyBody ? (
           <button
@@ -117,42 +177,20 @@ const Bubble = ({
         >
           {m.body ? <div className="text">{m.body}</div> : null}
           <div className="meta">
+            {m.editedAt ? "изменено · " : ""}
             {m.source === "telegram" ? "✈️ " : ""}
             {timeFormat.format(new Date(m.createdAt))}
           </div>
         </button>
         {selected ? (
-          <div className="bubble-actions">
-            <button
-              className="btn small secondary"
-              onClick={onReply}
-              type="button"
-            >
-              ↩️ Ответить
-            </button>
-            {m.body ? (
-              <button
-                className="btn small secondary"
-                onClick={() => {
-                  navigator.clipboard?.writeText(m.body).catch(() => null);
-                  haptic.success();
-                  onSelect();
-                }}
-                type="button"
-              >
-                📋
-              </button>
-            ) : null}
-            {canDelete ? (
-              <button
-                className="btn small danger"
-                onClick={remove}
-                type="button"
-              >
-                🗑
-              </button>
-            ) : null}
-          </div>
+          <BubbleActions
+            me={me}
+            message={m}
+            onDeleted={onDeleted}
+            onDone={onSelect}
+            onEdit={onEdit}
+            onReply={onReply}
+          />
         ) : null}
       </div>
     </div>
@@ -165,12 +203,17 @@ export const Timeline = ({
   me,
   onReply,
   onDeleted,
+  onEdit,
+  matches,
 }: {
   messages: Message[];
   activity: Activity[];
   me: User;
   onReply: (message: Message) => void;
   onDeleted: (id: number) => void;
+  onEdit: (message: Message) => void;
+  /** Message ids matching the chat search, highlighted. */
+  matches: ReadonlySet<number>;
 }) => {
   const [selected, setSelected] = useState<number | null>(null);
   const [viewer, setViewer] = useState<number | null>(null);
@@ -210,9 +253,14 @@ export const Timeline = ({
           separator,
           <Bubble
             key={`m-${m.id}`}
+            match={matches.has(m.id)}
             me={me}
             message={m}
             onDeleted={() => onDeleted(m.id)}
+            onEdit={() => {
+              setSelected(null);
+              onEdit(m);
+            }}
             onOpenImage={openImage}
             onReply={() => {
               setSelected(null);

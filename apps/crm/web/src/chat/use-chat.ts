@@ -10,6 +10,7 @@ export type Chat = {
   loaded: boolean;
   append: (message: Message) => void;
   remove: (id: number) => void;
+  replace: (message: Message) => void;
   refresh: () => void;
 };
 
@@ -93,6 +94,10 @@ export const useChat = (taskId: number, onTaskChanged: () => void): Chat => {
     setMessages((list) => mergeById(list, [message]));
   }, []);
 
+  const replace = useCallback((message: Message) => {
+    setMessages((list) => list.map((m) => (m.id === message.id ? message : m)));
+  }, []);
+
   const remove = useCallback((id: number) => {
     setMessages((list) => list.filter((m) => m.id !== id));
   }, []);
@@ -101,5 +106,5 @@ export const useChat = (taskId: number, onTaskChanged: () => void): Chat => {
     fetchNew().catch(() => null);
   }, [fetchNew]);
 
-  return { messages, activity, loaded, append, remove, refresh };
+  return { messages, activity, loaded, append, remove, replace, refresh };
 };

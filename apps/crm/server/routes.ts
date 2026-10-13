@@ -25,6 +25,7 @@ import {
 } from "../shared/model.ts";
 import {
   deleteMessage,
+  editMessage,
   getMessage,
   inbox,
   listActivity,
@@ -490,6 +491,21 @@ router.post("/api/tasks/:id/messages", async (ctx) => {
     attachments,
     replyTo: num(b, "replyTo") ?? null,
   });
+});
+
+router.patch("/api/messages/:id", (ctx) => {
+  requireMember(ctx.user);
+  const message = found(getMessage(idParam(ctx)), "Сообщение");
+  if (message.authorId !== ctx.user.id) {
+    throw new HttpError(403, "Можно редактировать только свои сообщения");
+  }
+  const body = str(bodyOf(ctx), "body", 4000) ?? "";
+  if (!(body || message.attachments.length)) {
+    throw new HttpError(400, "Пустое сообщение");
+  }
+  editMessage(message.id, body);
+  touchTask(message.taskId);
+  return getMessage(message.id);
 });
 
 router.delete("/api/messages/:id", (ctx) => {

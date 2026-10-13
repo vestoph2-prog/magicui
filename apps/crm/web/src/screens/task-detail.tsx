@@ -14,6 +14,7 @@ import {
 import { api, errorText, useApi } from "../api.ts";
 import { Composer } from "../chat/composer.tsx";
 import { Gallery } from "../chat/photos.tsx";
+import { ChatSearch } from "../chat/search.tsx";
 import { Timeline } from "../chat/timeline.tsx";
 import { useChat } from "../chat/use-chat.ts";
 import { formatDateTime, formatVisit } from "../format.ts";
@@ -342,12 +343,17 @@ const useStickToBottom = (count: number, loaded: boolean) => {
   }, [count, loaded]);
 };
 
+const NO_MATCHES: ReadonlySet<number> = new Set();
+
 export const TaskDetailScreen = ({ id }: { id: number }) => {
   const user = useSession();
   const task = useApi<Task>(`/tasks/${id}`);
   const chat = useChat(id, task.reload);
   const [busy, setBusy] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [matches, setMatches] = useState<ReadonlySet<number>>(NO_MATCHES);
   useStickToBottom(chat.messages.length + chat.activity.length, chat.loaded);
 
   if (!task.data) {
@@ -379,11 +385,36 @@ export const TaskDetailScreen = ({ id }: { id: number }) => {
         photos={chat.messages.flatMap((m) => m.attachments)}
         task={task.data}
       />
+      {searchOpen ? (
+        <ChatSearch
+          messages={chat.messages}
+          onClose={() => {
+            setSearchOpen(false);
+            setMatches(NO_MATCHES);
+          }}
+          onMatches={setMatches}
+        />
+      ) : null}
+      {!searchOpen && chat.messages.length > 3 ? (
+        <button
+          className="link-btn"
+          onClick={() => setSearchOpen(true)}
+          style={{ alignSelf: "flex-end", marginTop: 6 }}
+          type="button"
+        >
+          🔍 Поиск по чату
+        </button>
+      ) : null}
       <Timeline
         activity={chat.activity}
+        matches={matches}
         me={user}
         messages={chat.messages}
         onDeleted={chat.remove}
+        onEdit={(m) => {
+          setReplyTo(null);
+          setEditing(m);
+        }}
         onReply={setReplyTo}
       />
       {chat.loaded && chat.messages.length === 0 ? (
@@ -393,7 +424,13 @@ export const TaskDetailScreen = ({ id }: { id: number }) => {
         </div>
       ) : null}
       <Composer
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
         onCancelReply={() => setReplyTo(null)}
+        onEdited={(m) => {
+          chat.replace(m);
+          setEditing(null);
+        }}
         onSent={(m) => {
           chat.append(m);
           setTimeout(() => scrollToBottom(true), 50);

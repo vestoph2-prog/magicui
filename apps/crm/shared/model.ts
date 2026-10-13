@@ -344,6 +344,8 @@ export type Message = {
   replyAuthor: string | null;
   replyBody: string | null;
   source: "app" | "telegram";
+  /** Set when the author edited the text. */
+  editedAt: string | null;
   createdAt: string;
 };
 

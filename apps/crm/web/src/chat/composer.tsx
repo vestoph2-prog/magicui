@@ -37,16 +37,83 @@ type Props = {
   replyTo: Message | null;
   onCancelReply: () => void;
   onSent: (message: Message) => void;
+  /** Own message being edited; the composer switches to edit mode. */
+  editing: Message | null;
+  onCancelEdit: () => void;
+  onEdited: (message: Message) => void;
 };
 
-export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
+const EditBar = ({
+  message,
+  onCancel,
+}: {
+  message: Message;
+  onCancel: () => void;
+}) => (
+  <div className="reply-bar">
+    <div className="quote">
+      <b>✏️ Редактирование</b>
+      <span>{message.body}</span>
+    </div>
+    <button
+      aria-label="Отменить редактирование"
+      className="icon-btn"
+      onClick={onCancel}
+      type="button"
+    >
+      ✕
+    </button>
+  </div>
+);
+
+export const Composer = ({
+  taskId,
+  replyTo,
+  onCancelReply,
+  onSent,
+  editing,
+  onCancelEdit,
+  onEdited,
+}: Props) => {
   const [text, setText] = useState(() => loadDraft(taskId));
+  // The unsent draft is parked while an old message is being edited.
+  const parked = useRef("");
   const draft = usePhotoDraft();
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const hasPhotos = draft.photos.length > 0;
 
-  useEffect(() => saveDraft(taskId, text), [taskId, text]);
+  useEffect(() => {
+    if (!editing) {
+      saveDraft(taskId, text);
+    }
+  }, [taskId, text, editing]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: react to the edit target only
+  useEffect(() => {
+    if (editing) {
+      parked.current = text;
+      setText(editing.body);
+      input.current?.focus();
+    }
+  }, [editing]);
+
+  const cancelEdit = () => {
+    setText(parked.current);
+    onCancelEdit();
+  };
+
+  const saveEdit = async (body: string) => {
+    if (!editing) {
+      return;
+    }
+    const updated = await api<Message>(`/messages/${editing.id}`, {
+      method: "PATCH",
+      body: { body },
+    });
+    setText(parked.current);
+    onEdited(updated);
+  };
 
   useEffect(() => {
     if (replyTo) {
@@ -80,6 +147,11 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
     }
     setSending(true);
     try {
+      if (editing) {
+        await saveEdit(body);
+        haptic.success();
+        return;
+      }
       const attachments = await draft.uploadAll();
       const message = await api<Message>(`/tasks/${taskId}/messages`, {
         method: "POST",
@@ -109,7 +181,8 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
   return (
     <div className="composer">
       <div className="composer-inner">
-        {replyTo ? (
+        {editing ? <EditBar message={editing} onCancel={cancelEdit} /> : null}
+        {replyTo && !editing ? (
           <div className="reply-bar">
             <div className="quote">
               <b>↩️ {replyTo.authorName}</b>
@@ -127,7 +200,7 @@ export const Composer = ({ taskId, replyTo, onCancelReply, onSent }: Props) => {
         ) : null}
         <DraftPreviews draft={draft} />
         <div className="row">
-          <AttachButton draft={draft} />
+          {editing ? null : <AttachButton draft={draft} />}
           <textarea
             aria-label="Сообщение"
             onChange={(e) => setText(e.target.value)}
