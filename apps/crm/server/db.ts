@@ -176,6 +176,12 @@ const SCHEMA_V6 = `
 ALTER TABLE comments ADD COLUMN edited_at TEXT;
 `;
 
+/** v7: planned maintenance per deal. */
+const SCHEMA_V7 = `
+ALTER TABLE deals ADD COLUMN service_months INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deals ADD COLUMN next_service_date TEXT;
+`;
+
 const MIGRATIONS = [
   SCHEMA_V1,
   SCHEMA_V2,
@@ -183,6 +189,7 @@ const MIGRATIONS = [
   SCHEMA_V4,
   SCHEMA_V5,
   SCHEMA_V6,
+  SCHEMA_V7,
 ];
 
 const migrate = (database: DatabaseSync) => {

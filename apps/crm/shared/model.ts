@@ -45,6 +45,7 @@ export const TASK_KINDS = [
   "repair",
   "access",
   "docs",
+  "maintenance",
   "other",
 ] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
@@ -109,6 +110,7 @@ export const KIND_LABELS: Record<TaskKind, string> = {
   repair: "🚨 Авария / ремонт",
   access: "🔑 Доступы",
   docs: "📄 Документы",
+  maintenance: "🧰 Плановое ТО",
   other: "💬 Другое",
 };
 
@@ -288,6 +290,10 @@ export type Deal = {
   connectionType: ConnectionType;
   camerasCount: number;
   archiveDays: number;
+  /** Planned maintenance period in months; 0 — off. */
+  serviceMonths: number;
+  /** Local date (YYYY-MM-DD) of the next planned maintenance. */
+  nextServiceDate: string | null;
   stage: DealStage;
   notes: string;
   createdAt: string;
@@ -443,6 +449,8 @@ export type DealInput = {
   connectionType?: ConnectionType;
   camerasCount?: number;
   archiveDays?: number;
+  serviceMonths?: number;
+  nextServiceDate?: string | null;
   stage?: DealStage;
   notes?: string;
 };
@@ -455,6 +463,41 @@ export type ObjectInput = {
   contactPhone?: string;
   accessNotes?: string;
   archived?: boolean;
+};
+
+export const SERVICE_PERIODS = [0, 1, 3, 6, 12] as const;
+
+const CCTV_SERVICE_CHECKLIST = [
+  "Протереть объективы и купола камер",
+  "Проверить запись и фактическую глубину архива",
+  "Проверить состояние HDD (SMART, ошибки)",
+  "Сверить время на регистраторе",
+  "Проверить удалённый просмотр с телефона",
+];
+
+const INTERNET_SERVICE_CHECKLIST = [
+  "Замер скорости (скриншот в чат)",
+  "Проверить питание, ИБП и нагрев оборудования",
+  "Посмотреть журнал роутера: обрывы и перезагрузки",
+];
+
+/** Steps of a planned maintenance visit for a service. */
+export const maintenanceChecklist = (service: Service): string[] => [
+  ...(service === "internet" ? [] : CCTV_SERVICE_CHECKLIST),
+  ...(service === "cctv" ? [] : INTERNET_SERVICE_CHECKLIST),
+  "Обновить прошивки при необходимости",
+  "Сообщить заказчику итоги ТО в чате",
+];
+
+/** Adds months to YYYY-MM-DD, clamping to the month's last day (31.01 + 1 → 28/29.02). */
+export const addMonths = (date: string, months: number): string => {
+  const [y = 0, m = 1, d = 1] = date.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
 };
 
 export const hasInternet = (service: Service): boolean =>

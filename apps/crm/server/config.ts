@@ -24,6 +24,8 @@ export const config = {
   timeZone: env("TZ_NAME", "Europe/Moscow"),
   /** Local hour (0–23) to send the morning digest; empty disables it. */
   digestHour: env("DIGEST_HOUR", "8"),
+  /** How often the scheduler wakes up, ms (tests speed it up). */
+  schedulerTickMs: Number(env("SCHEDULER_TICK_MS", "60000")),
   botToken: env("BOT_TOKEN"),
   /** Public HTTPS URL where this server is reachable (Mini App URL). */
   webAppUrl: env("WEBAPP_URL"),

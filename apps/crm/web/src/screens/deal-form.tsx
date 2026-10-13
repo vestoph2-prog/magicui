@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 import {
+  addMonths,
   CONNECTION_LABELS,
   CONNECTION_TYPES,
   type ConnectionType,
@@ -17,11 +18,13 @@ import {
   hasInternet,
   SERVICE_ICONS,
   SERVICE_LABELS,
+  SERVICE_PERIODS,
   SERVICES,
   type Service,
   STAGE_LABELS,
 } from "../../../shared/model.ts";
 import { api, errorText, useApi } from "../api.ts";
+import { today } from "../format.ts";
 import { navigate } from "../router.ts";
 import { haptic } from "../telegram.ts";
 import { Empty, ErrorBox, Field, Loading, PageTitle } from "../ui.tsx";
@@ -42,6 +45,8 @@ type FormState = Record<NumericKey, string> & {
   title: string;
   service: Service;
   connectionType: ConnectionType;
+  serviceMonths: string;
+  nextServiceDate: string;
   clientName: string;
   clientContact: string;
   stage: DealStage;
@@ -53,6 +58,8 @@ const EMPTY: FormState = {
   title: "",
   service: "internet",
   connectionType: "",
+  serviceMonths: "0",
+  nextServiceDate: "",
   clientName: "",
   clientContact: "",
   stage: "lead",
@@ -69,6 +76,8 @@ const fromDeal = (d: Deal): FormState => ({
   title: d.title,
   service: d.service,
   connectionType: d.connectionType,
+  serviceMonths: String(d.serviceMonths),
+  nextServiceDate: d.nextServiceDate ?? "",
   clientName: d.clientName,
   clientContact: d.clientContact,
   stage: d.stage,
@@ -87,7 +96,67 @@ const toBody = (form: FormState) => ({
   ...form,
   objectId: Number(form.objectId),
   ...Object.fromEntries(NUMERIC.map((k) => [k, toNumber(form[k])])),
+  serviceMonths: Number(form.serviceMonths),
+  nextServiceDate: form.nextServiceDate || null,
 });
+
+const PERIOD_LABELS: Record<number, string> = {
+  0: "Не нужно",
+  1: "Каждый месяц",
+  3: "Раз в 3 месяца",
+  6: "Раз в полгода",
+  12: "Раз в год",
+};
+
+/** Period + first date; picking a period pre-fills the date one period ahead. */
+const ServicePlanFields = ({
+  form,
+  setForm,
+}: {
+  form: FormState;
+  setForm: (update: (f: FormState) => FormState) => void;
+}) => (
+  <div className="row" style={{ alignItems: "stretch" }}>
+    <Half>
+      <Field label="🧰 Плановое ТО">
+        <select
+          onChange={(e) => {
+            const months = e.target.value;
+            setForm((f) => ({
+              ...f,
+              serviceMonths: months,
+              nextServiceDate:
+                months === "0"
+                  ? ""
+                  : f.nextServiceDate || addMonths(today(), Number(months)),
+            }));
+          }}
+          value={form.serviceMonths}
+        >
+          {SERVICE_PERIODS.map((m) => (
+            <option key={m} value={m}>
+              {PERIOD_LABELS[m]}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </Half>
+    {form.serviceMonths === "0" ? null : (
+      <Half>
+        <Field label="Следующее ТО">
+          <input
+            onChange={(e) =>
+              setForm((f) => ({ ...f, nextServiceDate: e.target.value }))
+            }
+            required
+            type="date"
+            value={form.nextServiceDate}
+          />
+        </Field>
+      </Half>
+    )}
+  </div>
+);
 
 type Change = ChangeEvent<
   HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
@@ -298,6 +367,7 @@ export const DealFormScreen = ({
           </Field>
         </Half>
       </div>
+      <ServicePlanFields form={form} setForm={setForm} />
       <Field label="Этап">
         <select onChange={set("stage")} value={form.stage}>
           {DEAL_STAGES.map((s) => (

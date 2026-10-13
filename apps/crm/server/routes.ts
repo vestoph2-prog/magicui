@@ -14,6 +14,7 @@ import {
   type Priority,
   ROLES,
   type Role,
+  SERVICE_PERIODS,
   SERVICES,
   type Service,
   TASK_KINDS,
@@ -253,6 +254,17 @@ router.delete("/api/objects/:id", (ctx) => {
 
 /* ---------------------------------- deals --------------------------------- */
 
+const servicePeriod = (b: Body): number | undefined => {
+  const months = num(b, "serviceMonths");
+  if (
+    months !== undefined &&
+    !(SERVICE_PERIODS as readonly number[]).includes(months)
+  ) {
+    throw new HttpError(400, "Период ТО: 0, 1, 3, 6 или 12 месяцев");
+  }
+  return months;
+};
+
 const dealInput = (b: Body): Partial<DealInput> => ({
   objectId: num(b, "objectId"),
   title: str(b, "title", 200) || undefined,
@@ -265,6 +277,8 @@ const dealInput = (b: Body): Partial<DealInput> => ({
   connectionType: oneOf<ConnectionType>(b, "connectionType", CONNECTION_TYPES),
   camerasCount: num(b, "camerasCount"),
   archiveDays: num(b, "archiveDays"),
+  serviceMonths: servicePeriod(b),
+  nextServiceDate: nullableDate(b, "nextServiceDate"),
   stage: oneOf<DealStage>(b, "stage", DEAL_STAGES),
   notes: str(b, "notes"),
 });

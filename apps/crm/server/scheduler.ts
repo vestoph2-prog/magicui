@@ -1,24 +1,32 @@
 import {
+  addMonths,
+  type Deal,
   isOpenStatus,
   isStaff,
+  maintenanceChecklist,
   STATUS_LABELS,
   type Task,
   type User,
 } from "../shared/model.ts";
 import { runBackup } from "./backup.ts";
+import { logActivity } from "./chat-repo.ts";
 import { config } from "./config.ts";
 import {
   claimReminder,
+  createTask,
+  dealsDueForService,
   dueUpTo,
+  getTask,
   listTasks,
   listUsers,
+  setNextServiceDate,
+  systemActorFor,
   visitsBetween,
 } from "./repo.ts";
 import { notifyTask } from "./service.ts";
 import { html, notify } from "./telegram.ts";
 import { dayBoundsUtc, formatLocal, localParts } from "./time.ts";
 
-const TICK_MS = 60_000;
 const VISIT_LEAD_MS = 60 * 60_000;
 /** Digest goes out within this many hours after DIGEST_HOUR, never at night. */
 const DIGEST_WINDOW_H = 3;
@@ -130,6 +138,71 @@ const sendDigest = async (now: Date) => {
   }
 };
 
+/* --------------------------- planned maintenance -------------------------- */
+
+/**
+ * Creates the "ТО" task for every deal whose maintenance date has come, then
+ * moves the date past today (missed periods while offline make one task).
+ */
+/** First maintenance date strictly after `today`. */
+export const nextAfter = (from: string, months: number, today: string) => {
+  let next = from;
+  while (next <= today) {
+    next = addMonths(next, months);
+  }
+  return next;
+};
+
+const createMaintenanceTask = async (
+  deal: Deal,
+  due: string,
+  next: string,
+  today: string
+) => {
+  const actor = systemActorFor(deal);
+  if (!actor) {
+    return;
+  }
+  const id = createTask(
+    {
+      dealId: deal.id,
+      kind: "maintenance",
+      title: `ТО: ${deal.title}`,
+      description: `Плановое обслуживание раз в ${deal.serviceMonths} мес. Следующее — ${next}.`,
+      dueDate: due < today ? today : due,
+      checklist: maintenanceChecklist(deal.service),
+    },
+    actor.id
+  );
+  logActivity(id, actor.id, "🧰 создана автоматически по графику ТО");
+  const task = getTask(id, actor.id);
+  if (!task) {
+    return;
+  }
+  const where = task.objectAddress
+    ? `${task.objectName}, ${task.objectAddress}`
+    : task.objectName;
+  await notifyTask(task, 0, {
+    text: html`🧰 <b>Плановое ТО</b>\n<b>#${task.id} ${task.title}</b>\n🏗 ${where}\nСрок: ${task.dueDate ?? today}`,
+  });
+};
+
+/**
+ * Creates the "ТО" task for every deal whose maintenance date has come, then
+ * moves the date past today (missed periods while offline make one task).
+ */
+const planMaintenance = async (now: Date) => {
+  const today = localParts(now, config.timeZone).date;
+  for (const deal of dealsDueForService(today)) {
+    const due = deal.nextServiceDate;
+    if (due && claimReminder(`service:${deal.id}:${due}`)) {
+      const next = nextAfter(due, deal.serviceMonths, today);
+      setNextServiceDate(deal.id, next);
+      await createMaintenanceTask(deal, due, next, today);
+    }
+  }
+};
+
 /** Nightly backup between 03:00 and 06:00 local time, once per day. */
 const backupAtNight = (now: Date) => {
   const local = localParts(now, config.timeZone);
@@ -143,6 +216,9 @@ const tick = async () => {
   const now = new Date();
   await remindVisits(now).catch((e: unknown) => {
     process.stderr.write(`visit reminders failed: ${String(e)}\n`);
+  });
+  await planMaintenance(now).catch((e: unknown) => {
+    process.stderr.write(`maintenance planning failed: ${String(e)}\n`);
   });
   await sendDigest(now).catch((e: unknown) => {
     process.stderr.write(`digest failed: ${String(e)}\n`);
@@ -158,5 +234,5 @@ export const startScheduler = (): void => {
   tick().catch(() => null);
   setInterval(() => {
     tick().catch(() => null);
-  }, TICK_MS);
+  }, config.schedulerTickMs);
 };

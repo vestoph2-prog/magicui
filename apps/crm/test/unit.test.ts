@@ -150,3 +150,32 @@ describe("chat search", () => {
     assert.deepEqual(findMatches(chat, "   "), []);
   });
 });
+
+const { addMonths, maintenanceChecklist } = await import("../shared/model.ts");
+const { nextAfter } = await import("../server/scheduler.ts");
+
+describe("maintenance dates", () => {
+  it("adds months, clamping to the end of a shorter month", () => {
+    assert.equal(addMonths("2026-01-31", 1), "2026-02-28");
+    assert.equal(addMonths("2028-01-31", 1), "2028-02-29");
+    assert.equal(addMonths("2026-11-15", 3), "2027-02-15");
+    assert.equal(addMonths("2026-10-13", 12), "2027-10-13");
+  });
+
+  it("skips periods missed while the server was off", () => {
+    assert.equal(nextAfter("2026-01-10", 3, "2026-10-13"), "2027-01-10");
+    assert.equal(nextAfter("2026-10-13", 6, "2026-10-13"), "2027-04-13");
+  });
+
+  it("tailors the checklist to the service", () => {
+    const cctv = maintenanceChecklist("cctv").join(" ");
+    const internet = maintenanceChecklist("internet").join(" ");
+    assert.match(cctv, /HDD/);
+    assert.doesNotMatch(cctv, /Замер скорости/);
+    assert.match(internet, /Замер скорости/);
+    assert.doesNotMatch(internet, /HDD/);
+    assert.ok(
+      maintenanceChecklist("both").length > maintenanceChecklist("cctv").length
+    );
+  });
+});

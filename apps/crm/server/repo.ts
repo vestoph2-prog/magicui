@@ -157,6 +157,7 @@ const DEAL_SELECT = `SELECT d.id, d.object_id AS objectId, o.name AS objectName,
   d.client_contact AS clientContact, d.amount, d.monthly_fee AS monthlyFee,
   d.internet_speed AS internetSpeed, d.connection_type AS connectionType,
   d.cameras_count AS camerasCount, d.archive_days AS archiveDays,
+  d.service_months AS serviceMonths, d.next_service_date AS nextServiceDate,
   d.stage, d.notes, d.created_at AS createdAt, d.updated_at AS updatedAt,
   (SELECT count(*) FROM tasks t WHERE t.deal_id = d.id) AS tasksCount,
   (SELECT count(*) FROM tasks t WHERE t.deal_id = d.id
@@ -210,6 +211,8 @@ const dealParams = (d: DealInput): Params => ({
   connectionType: d.connectionType ?? "",
   camerasCount: d.camerasCount ?? 0,
   archiveDays: d.archiveDays ?? 0,
+  serviceMonths: d.serviceMonths ?? 0,
+  nextServiceDate: d.serviceMonths ? (d.nextServiceDate ?? null) : null,
   stage: d.stage ?? "lead",
   notes: d.notes ?? "",
 });
@@ -218,10 +221,12 @@ export const createDeal = (input: DealInput, createdBy: number): number =>
   run(
     `INSERT INTO deals (object_id, title, service, client_name, client_contact,
        amount, monthly_fee, internet_speed, connection_type, cameras_count,
-       archive_days, stage, notes, created_by)
+       archive_days, service_months, next_service_date, stage, notes,
+       created_by)
      VALUES (:objectId, :title, :service, :clientName, :clientContact,
        :amount, :monthlyFee, :internetSpeed, :connectionType, :camerasCount,
-       :archiveDays, :stage, :notes, :createdBy)`,
+       :archiveDays, :serviceMonths, :nextServiceDate, :stage, :notes,
+       :createdBy)`,
     { ...dealParams(input), createdBy }
   );
 
@@ -236,11 +241,40 @@ export const updateDeal = (id: number, patch: Partial<DealInput>): void => {
        client_contact = :clientContact, amount = :amount,
        monthly_fee = :monthlyFee, internet_speed = :internetSpeed,
        connection_type = :connectionType, cameras_count = :camerasCount,
-       archive_days = :archiveDays, stage = :stage, notes = :notes,
+       archive_days = :archiveDays, service_months = :serviceMonths,
+       next_service_date = :nextServiceDate, stage = :stage, notes = :notes,
        updated_at = ${NOW_SQL}
      WHERE id = :id`,
     { id, ...dealParams({ ...current, ...defined(patch) }) }
   );
+};
+
+/** Deals with planned maintenance due on or before `today` (local date). */
+export const dealsDueForService = (today: string): Deal[] =>
+  all<Deal>(
+    `${DEAL_SELECT} WHERE d.service_months > 0
+     AND d.next_service_date IS NOT NULL AND d.next_service_date <= :today
+     AND d.stage != 'lost'`,
+    { today }
+  );
+
+export const setNextServiceDate = (id: number, date: string): void => {
+  run("UPDATE deals SET next_service_date = :date WHERE id = :id", {
+    id,
+    date,
+  });
+};
+
+/** Who system-created tasks are attributed to: the deal author or an admin. */
+export const systemActorFor = (deal: Deal): User | undefined => {
+  const row = one<{ id: number }>(
+    `SELECT coalesce(
+       (SELECT created_by FROM deals WHERE id = :id),
+       (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1)
+     ) AS id`,
+    { id: deal.id }
+  );
+  return row?.id ? getUser(row.id) : undefined;
 };
 
 export const deleteDeal = (id: number): void => {

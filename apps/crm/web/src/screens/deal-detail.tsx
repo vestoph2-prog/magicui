@@ -15,7 +15,7 @@ import {
   type Task,
 } from "../../../shared/model.ts";
 import { api, errorText, useApi } from "../api.ts";
-import { formatDateTime, formatMoney } from "../format.ts";
+import { formatDateTime, formatDue, formatMoney } from "../format.ts";
 import { goBack } from "../router.ts";
 import { alertMessage, confirmAction, haptic } from "../telegram.ts";
 import {
@@ -104,6 +104,14 @@ const DealProps = ({ deal }: { deal: Deal }) => (
     <Prop
       label="Абонплата"
       value={deal.monthlyFee ? `${formatMoney(deal.monthlyFee)} / мес` : ""}
+    />
+    <Prop
+      label="Плановое ТО"
+      value={
+        deal.serviceMonths && deal.nextServiceDate
+          ? `раз в ${deal.serviceMonths} мес · следующее ${formatDue(deal.nextServiceDate)}`
+          : ""
+      }
     />
     <Prop label="Заказчик" value={deal.clientName} />
     <Prop label="Контакт" value={deal.clientContact} />

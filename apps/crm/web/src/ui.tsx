@@ -198,6 +198,9 @@ export const dealSpecs = (deal: Deal): string[] => {
   if (deal.monthlyFee) {
     specs.push(`${formatMoney(deal.monthlyFee)}/мес`);
   }
+  if (deal.serviceMonths && deal.nextServiceDate) {
+    specs.push(`ТО ${formatDue(deal.nextServiceDate)}`);
+  }
   return specs;
 };
 

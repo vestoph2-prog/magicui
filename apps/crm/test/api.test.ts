@@ -360,6 +360,44 @@ describe("equipment", () => {
   });
 });
 
+describe("planned maintenance", () => {
+  it("creates one ТО task when due and moves the date forward", async () => {
+    const created = await manager<Deal>("/api/deals", {
+      method: "POST",
+      body: {
+        objectId: deal.objectId,
+        title: "Обслуживание камер",
+        service: "cctv",
+        serviceMonths: 3,
+        nextServiceDate: "2020-01-15",
+      },
+    });
+    assert.equal(created.status, 200);
+    // Several scheduler ticks (200 ms in tests) must still make one task.
+    await new Promise((r) => setTimeout(r, 1200));
+    const tasks = await manager<Task[]>(`/api/tasks?dealId=${created.data.id}`);
+    const service = tasks.data.filter((t) => t.kind === "maintenance");
+    assert.equal(service.length, 1);
+    assert.equal(service[0]?.title, "ТО: Обслуживание камер");
+    assert.ok((service[0]?.checklistTotal ?? 0) >= 5);
+
+    const reloaded = await manager<{ deal: Deal }>(
+      `/api/deals/${created.data.id}`
+    );
+    const next = reloaded.data.deal.nextServiceDate ?? "";
+    assert.ok(next > new Date().toISOString().slice(0, 10), `next=${next}`);
+    assert.equal(next.slice(8), "15", "keeps the day of month");
+  });
+
+  it("accepts only supported periods", async () => {
+    const res = await manager("/api/deals", {
+      method: "POST",
+      body: { objectId: deal.objectId, title: "x", serviceMonths: 5 },
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
 describe("dashboard", () => {
   it("reports visits today and urgent work", async () => {
     const d = await manager<Dashboard>("/api/dashboard");

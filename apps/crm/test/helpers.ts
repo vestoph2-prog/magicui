@@ -45,6 +45,7 @@ export const startServer = async (): Promise<TestServer> => {
         BOT_TOKEN: "",
         ADMIN_IDS: "",
         DIGEST_HOUR: "",
+        SCHEDULER_TICK_MS: "200",
       },
       stdio: ["ignore", "pipe", "pipe"],
     }
