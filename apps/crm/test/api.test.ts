@@ -1,0 +1,458 @@
+import assert from "node:assert/strict";
+import { after, before, describe, it } from "node:test";
+import type {
+  ChatUpdate,
+  ChecklistItem,
+  Dashboard,
+  Deal,
+  Equipment,
+  InboxItem,
+  Invite,
+  Message,
+  Task,
+  User,
+} from "../shared/model.ts";
+import { PNG, startServer, type TestServer } from "./helpers.ts";
+
+let server: TestServer;
+let admin: ReturnType<TestServer["as"]>;
+let manager: ReturnType<TestServer["as"]>;
+let client: ReturnType<TestServer["as"]>;
+let stranger: ReturnType<TestServer["as"]>;
+let deal: Deal;
+
+const inviteCode = async (role: string) => {
+  const res = await admin<Invite>("/api/invites", {
+    method: "POST",
+    body: { role },
+  });
+  assert.equal(res.status, 200);
+  return res.data.code;
+};
+
+before(async () => {
+  server = await startServer();
+  admin = server.as("1:Алексей");
+  const me = await admin<{ user: User }>("/api/me");
+  assert.equal(me.data.user.role, "admin", "first user becomes admin");
+
+  await server.as(`2:Мария:inv_${await inviteCode("manager")}`)("/api/me");
+  await server.as(`3:Иван:inv_${await inviteCode("client")}`)("/api/me");
+  manager = server.as("2:Мария");
+  client = server.as("3:Иван");
+  stranger = server.as("9:Чужой");
+
+  const object = await manager<{ id: number }>("/api/objects", {
+    method: "POST",
+    body: { name: "Офис", address: "Баумана, 1" },
+  });
+  const created = await manager<Deal>("/api/deals", {
+    method: "POST",
+    body: {
+      objectId: object.data.id,
+      title: "Видеонаблюдение",
+      service: "cctv",
+      camerasCount: 8,
+    },
+  });
+  deal = created.data;
+});
+
+after(async () => {
+  await server.stop();
+});
+
+describe("access", () => {
+  it("keeps strangers out until invited", async () => {
+    const me = await stranger<{ user: User }>("/api/me");
+    assert.equal(me.data.user.role, "guest");
+    assert.equal((await stranger("/api/tasks")).status, 403);
+  });
+
+  it("invites are single-use and never downgrade", async () => {
+    const code = await inviteCode("client");
+    await server.as(`4:Пётр:inv_${code}`)("/api/me");
+    const reuse = await server.as(`5:Ещё:inv_${code}`)<{ user: User }>(
+      "/api/me"
+    );
+    assert.equal(reuse.data.user.role, "guest");
+    const again = await server.as(
+      `1:Алексей:inv_${await inviteCode("client")}`
+    )<{
+      user: User;
+    }>("/api/me");
+    assert.equal(again.data.user.role, "admin");
+  });
+
+  it("only staff manage deals", async () => {
+    const res = await client("/api/deals", {
+      method: "POST",
+      body: { objectId: deal.objectId, title: "x" },
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
+describe("tasks", () => {
+  let task: Task;
+
+  it("client raises a breakdown that is urgent by default", async () => {
+    const res = await client<Task>("/api/tasks", {
+      method: "POST",
+      body: {
+        dealId: deal.id,
+        kind: "repair",
+        title: "Камера не показывает",
+        assigneeId: 2,
+      },
+    });
+    assert.equal(res.status, 200);
+    task = res.data;
+    assert.equal(task.priority, "urgent");
+    assert.equal(task.assigneeId, null, "clients cannot assign");
+  });
+
+  it("client cannot move work forward, only accept it", async () => {
+    const forbidden = await client(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { status: "done" },
+    });
+    assert.equal(forbidden.status, 403);
+    await manager(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { status: "review", assigneeId: 2 },
+    });
+    const accepted = await client<Task>(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { status: "done" },
+    });
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.data.status, "done");
+  });
+
+  it("stores the visit time in UTC and counts today's visits", async () => {
+    const soon = new Date(Date.now() + 30 * 60_000);
+    soon.setSeconds(0, 0);
+    const res = await manager<Task>(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { status: "in_progress", visitAt: soon.toISOString() },
+    });
+    assert.equal(res.data.visitAt, soon.toISOString());
+    const bad = await manager(`/api/tasks/${task.id}`, {
+      method: "PATCH",
+      body: { visitAt: "завтра" },
+    });
+    assert.equal(bad.status, 400);
+  });
+
+  it("rejects malformed dates", async () => {
+    const res = await manager("/api/tasks", {
+      method: "POST",
+      body: { dealId: deal.id, title: "x", dueDate: "10.10.2026" },
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+describe("templates and checklists", () => {
+  it("creates the CCTV plan with checklists once", async () => {
+    const first = await manager<{ created: number }>(
+      `/api/deals/${deal.id}/template`,
+      { method: "POST" }
+    );
+    assert.ok(first.data.created >= 5);
+    const second = await manager<{ created: number }>(
+      `/api/deals/${deal.id}/template`,
+      { method: "POST" }
+    );
+    assert.equal(second.data.created, 0, "no duplicates");
+
+    const tasks = await manager<Task[]>(`/api/tasks?dealId=${deal.id}`);
+    const nvr = tasks.data.find((t) => t.title.includes("регистратора"));
+    assert.ok(nvr);
+    assert.ok(nvr.checklistTotal >= 3);
+    assert.equal(nvr.checklistDone, 0);
+
+    const items = await manager<ChecklistItem[]>(
+      `/api/tasks/${nvr.id}/checklist`
+    );
+    const firstItem = items.data[0];
+    assert.ok(firstItem);
+    const ticked = await manager<ChecklistItem[]>(
+      `/api/checklist/${firstItem.id}`,
+      { method: "PATCH", body: { done: true } }
+    );
+    assert.equal(ticked.data[0]?.done, true);
+    assert.equal(ticked.data[0]?.doneByName, "Мария");
+
+    const byClient = await client(`/api/checklist/${firstItem.id}`, {
+      method: "PATCH",
+      body: { done: false },
+    });
+    assert.equal(byClient.status, 403);
+  });
+});
+
+describe("chat", () => {
+  let task: Task;
+
+  before(async () => {
+    const res = await client<Task>("/api/tasks", {
+      method: "POST",
+      body: { dealId: deal.id, title: "Нужен доступ к камерам" },
+    });
+    task = res.data;
+  });
+
+  it("delivers messages with replies and unread counters", async () => {
+    const q = await client<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "Когда приедете?" },
+    });
+    const a = await manager<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "Завтра в 10", replyTo: q.data.id },
+    });
+    assert.equal(a.data.replyBody, "Когда приедете?");
+
+    const unread = await client<{ total: number }>("/api/unread");
+    assert.ok(unread.data.total >= 1);
+    const inbox = await client<InboxItem[]>("/api/inbox");
+    assert.equal(inbox.data[0]?.taskId, task.id);
+    assert.equal(inbox.data[0]?.lastBody, "Завтра в 10");
+
+    const chat = await client<ChatUpdate>(`/api/tasks/${task.id}/chat`);
+    assert.equal(chat.data.messages.length, 2);
+    const afterOpen = await client<InboxItem[]>("/api/inbox");
+    assert.equal(
+      afterOpen.data[0]?.unreadCount,
+      0,
+      "opening the chat reads it"
+    );
+  });
+
+  it("accepts photos and rejects anything else", async () => {
+    const ok = await manager<{ file: string }>("/api/uploads", {
+      method: "POST",
+      raw: new Blob([PNG], { type: "image/png" }),
+    });
+    assert.equal(ok.status, 200);
+    const fake = await manager("/api/uploads", {
+      method: "POST",
+      raw: new Blob(["<script>"], { type: "image/png" }),
+    });
+    assert.equal(fake.status, 415);
+
+    const msg = await manager<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "", attachments: [ok.data.file, "../../etc/passwd"] },
+    });
+    assert.deepEqual(msg.data.attachments, [ok.data.file]);
+
+    const img = await fetch(`${server.url}/uploads/${ok.data.file}`);
+    assert.equal(img.headers.get("content-type"), "image/png");
+    const traversal = await fetch(
+      `${server.url}/uploads/..%2f..%2fpackage.json`
+    );
+    assert.equal(traversal.status, 404);
+  });
+
+  it("lets authors edit their messages and marks them edited", async () => {
+    const mine = await client<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "Приезжайте в 10" },
+    });
+    assert.equal(mine.data.editedAt, null);
+    const edited = await client<Message>(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "Приезжайте в 11" },
+    });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.data.body, "Приезжайте в 11");
+    assert.ok(edited.data.editedAt);
+
+    const byOther = await manager(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "чужое" },
+    });
+    assert.equal(byOther.status, 403, "even staff cannot rewrite others");
+    const blank = await client(`/api/messages/${mine.data.id}`, {
+      method: "PATCH",
+      body: { body: "   " },
+    });
+    assert.equal(blank.status, 400);
+  });
+
+  it("lets people delete only their own messages", async () => {
+    const mine = await client<Message>(`/api/tasks/${task.id}/messages`, {
+      method: "POST",
+      body: { body: "опечатка" },
+    });
+    const byOther = await manager(`/api/messages/${mine.data.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(byOther.status, 403);
+    const byAuthor = await client(`/api/messages/${mine.data.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(byAuthor.status, 200);
+  });
+});
+
+describe("equipment", () => {
+  it("staff record hardware, the customer only reads it", async () => {
+    const created = await manager<Equipment>(
+      `/api/objects/${deal.objectId}/equipment`,
+      {
+        method: "POST",
+        body: {
+          type: "nvr",
+          model: "Hikvision DS-7608",
+          serial: "SN123",
+          ip: "192.168.1.10",
+          installedAt: "2026-10-01",
+          password: "admin123",
+        },
+      }
+    );
+    assert.equal(created.status, 200);
+    assert.equal(created.data.model, "Hikvision DS-7608");
+    assert.ok(!("password" in created.data), "passwords are never stored");
+
+    const byClient = await client(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "camera", model: "x" },
+    });
+    assert.equal(byClient.status, 403);
+    const seen = await client<Equipment[]>(
+      `/api/objects/${deal.objectId}/equipment`
+    );
+    assert.equal(seen.data.length, 1);
+
+    const edited = await manager<Equipment>(
+      `/api/equipment/${created.data.id}`,
+      { method: "PATCH", body: { location: "Серверная", installedAt: null } }
+    );
+    assert.equal(edited.data.location, "Серверная");
+    assert.equal(edited.data.installedAt, null);
+    assert.equal(edited.data.serial, "SN123", "untouched fields survive");
+
+    const empty = await manager(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "camera" },
+    });
+    assert.equal(empty.status, 400);
+    const badType = await manager(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "toaster", model: "x" },
+    });
+    assert.equal(badType.status, 400);
+
+    const removed = await client(`/api/equipment/${created.data.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(removed.status, 403);
+    await manager(`/api/equipment/${created.data.id}`, { method: "DELETE" });
+    const remaining = await manager<Equipment[]>(
+      `/api/objects/${deal.objectId}/equipment`
+    );
+    assert.equal(remaining.data.length, 0);
+  });
+});
+
+describe("planned maintenance", () => {
+  it("creates one ТО task when due and moves the date forward", async () => {
+    const created = await manager<Deal>("/api/deals", {
+      method: "POST",
+      body: {
+        objectId: deal.objectId,
+        title: "Обслуживание камер",
+        service: "cctv",
+        serviceMonths: 3,
+        nextServiceDate: "2020-01-15",
+      },
+    });
+    assert.equal(created.status, 200);
+    // Several scheduler ticks (200 ms in tests) must still make one task.
+    await new Promise((r) => setTimeout(r, 1200));
+    const tasks = await manager<Task[]>(`/api/tasks?dealId=${created.data.id}`);
+    const service = tasks.data.filter((t) => t.kind === "maintenance");
+    assert.equal(service.length, 1);
+    assert.equal(service[0]?.title, "ТО: Обслуживание камер");
+    assert.ok((service[0]?.checklistTotal ?? 0) >= 5);
+
+    const reloaded = await manager<{ deal: Deal }>(
+      `/api/deals/${created.data.id}`
+    );
+    const next = reloaded.data.deal.nextServiceDate ?? "";
+    assert.ok(next > new Date().toISOString().slice(0, 10), `next=${next}`);
+    assert.equal(next.slice(8), "15", "keeps the day of month");
+  });
+
+  it("accepts only supported periods", async () => {
+    const res = await manager("/api/deals", {
+      method: "POST",
+      body: { objectId: deal.objectId, title: "x", serviceMonths: 5 },
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+describe("export", () => {
+  // Far future: the period is in Moscow time while the test clock is UTC.
+  const today = "2099-12-31";
+
+  it("gives staff a CSV of tasks and deals for a period", async () => {
+    const tasks = await manager<{
+      sent: boolean;
+      filename: string;
+      csv: string;
+    }>("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: today },
+    });
+    assert.equal(tasks.status, 200);
+    assert.equal(tasks.data.sent, false, "no bot in tests → inline CSV");
+    assert.match(tasks.data.filename, /^zadachi_2020-01-01_/);
+    const lines = tasks.data.csv.trim().split("\r\n");
+    assert.match(lines[0] ?? "", /№;Объект;Адрес;Сделка/);
+    assert.ok(lines.length > 5);
+    assert.ok(tasks.data.csv.includes("Камера не показывает"));
+
+    const deals = await manager<{ csv: string }>("/api/export", {
+      method: "POST",
+      body: { kind: "deals", from: "2020-01-01", to: today },
+    });
+    assert.ok(deals.data.csv.includes("Видеонаблюдение"));
+  });
+
+  it("filters by period and validates it", async () => {
+    const old = await manager<{ csv: string }>("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: "2020-12-31" },
+    });
+    assert.equal(old.data.csv.trim().split("\r\n").length, 1, "header only");
+    const reversed = await manager("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: today, to: "2020-01-01" },
+    });
+    assert.equal(reversed.status, 400);
+  });
+
+  it("is staff-only", async () => {
+    const res = await client("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: today },
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
+describe("dashboard", () => {
+  it("reports visits today and urgent work", async () => {
+    const d = await manager<Dashboard>("/api/dashboard");
+    assert.equal(d.status, 200);
+    assert.ok(d.data.visitsToday >= 1);
+    assert.equal(typeof d.data.urgentOpen, "number");
+  });
+});
