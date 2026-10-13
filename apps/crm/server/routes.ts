@@ -44,6 +44,7 @@ import {
   listEquipment,
   updateEquipment,
 } from "./equipment-repo.ts";
+import { buildExport, type ExportKind } from "./export.ts";
 import { type Ctx, createRouter, HttpError } from "./http.ts";
 import {
   addChecklistItem,
@@ -83,6 +84,7 @@ import {
   postMessage,
   touchPresence,
 } from "./service.ts";
+import { botEnabled, sendDocument } from "./telegram.ts";
 import { dayBoundsUtc, localParts } from "./time.ts";
 import { isUploadName, readUpload } from "./uploads.ts";
 import {
@@ -116,6 +118,42 @@ const todayVisits = () => {
 
 const taskOr404 = (ctx: Ctx) =>
   found(getTask(idParam(ctx), ctx.user.id), "Задача");
+
+/* --------------------------------- export --------------------------------- */
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Inside Telegram a download link is unreliable, so the bot sends the CSV to
+ * the requester's chat. Without a bot (local dev) the CSV comes back inline.
+ */
+router.post("/api/export", async (ctx) => {
+  requireStaff(ctx.user);
+  const b = bodyOf(ctx);
+  const kind = oneOf<ExportKind>(b, "kind", ["tasks", "deals"]) ?? "tasks";
+  const from = str(b, "from", 10) ?? "";
+  const to = str(b, "to", 10) ?? "";
+  if (!(DATE_ONLY_RE.test(from) && DATE_ONLY_RE.test(to)) || from > to) {
+    throw new HttpError(400, "Укажите период: дата «с» не позже даты «по»");
+  }
+  const { filename, csv } = buildExport(kind, from, to);
+  if (!botEnabled()) {
+    return { sent: false, filename, csv };
+  }
+  const title = kind === "tasks" ? "Задачи" : "Сделки";
+  await sendDocument(
+    ctx.user.id,
+    filename,
+    csv,
+    `📊 ${title} за ${from} — ${to}. Откройте в Excel или Google Таблицах.`
+  ).catch((e: unknown) => {
+    throw new HttpError(
+      502,
+      `Бот не смог отправить файл: напишите боту /start и повторите (${String(e)})`
+    );
+  });
+  return { sent: true, filename };
+});
 
 /* ---------------------------------- users --------------------------------- */
 

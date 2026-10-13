@@ -10,6 +10,7 @@ import {
 import { api, useApi } from "../api.ts";
 import { alertMessage, haptic, webApp } from "../telegram.ts";
 import { ErrorBox, PageTitle, SectionTitle, useSession } from "../ui.tsx";
+import { Reports } from "./reports.tsx";
 
 const shareInvite = (invite: Invite) => {
   const text = `Приглашение в CRM (${ROLE_LABELS[invite.role]})`;
@@ -127,6 +128,8 @@ export const TeamScreen = () => {
           </div>
         ))}
       </div>
+
+      <Reports />
 
       <SectionTitle>Пригласить</SectionTitle>
       <div className="stack">

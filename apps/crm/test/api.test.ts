@@ -398,6 +398,56 @@ describe("planned maintenance", () => {
   });
 });
 
+describe("export", () => {
+  // Far future: the period is in Moscow time while the test clock is UTC.
+  const today = "2099-12-31";
+
+  it("gives staff a CSV of tasks and deals for a period", async () => {
+    const tasks = await manager<{
+      sent: boolean;
+      filename: string;
+      csv: string;
+    }>("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: today },
+    });
+    assert.equal(tasks.status, 200);
+    assert.equal(tasks.data.sent, false, "no bot in tests → inline CSV");
+    assert.match(tasks.data.filename, /^zadachi_2020-01-01_/);
+    const lines = tasks.data.csv.trim().split("\r\n");
+    assert.match(lines[0] ?? "", /№;Объект;Адрес;Сделка/);
+    assert.ok(lines.length > 5);
+    assert.ok(tasks.data.csv.includes("Камера не показывает"));
+
+    const deals = await manager<{ csv: string }>("/api/export", {
+      method: "POST",
+      body: { kind: "deals", from: "2020-01-01", to: today },
+    });
+    assert.ok(deals.data.csv.includes("Видеонаблюдение"));
+  });
+
+  it("filters by period and validates it", async () => {
+    const old = await manager<{ csv: string }>("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: "2020-12-31" },
+    });
+    assert.equal(old.data.csv.trim().split("\r\n").length, 1, "header only");
+    const reversed = await manager("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: today, to: "2020-01-01" },
+    });
+    assert.equal(reversed.status, 400);
+  });
+
+  it("is staff-only", async () => {
+    const res = await client("/api/export", {
+      method: "POST",
+      body: { kind: "tasks", from: "2020-01-01", to: today },
+    });
+    assert.equal(res.status, 403);
+  });
+});
+
 describe("dashboard", () => {
   it("reports visits today and urgent work", async () => {
     const d = await manager<Dashboard>("/api/dashboard");

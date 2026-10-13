@@ -149,6 +149,31 @@ export const notify = async (
   return results.filter((r): r is Delivered => r !== null);
 };
 
+/** Sends a generated file (e.g. a CSV export) into a private chat. */
+export const sendDocument = async (
+  chatId: number,
+  filename: string,
+  content: string,
+  caption: string
+): Promise<void> => {
+  const form = new FormData();
+  form.set("chat_id", String(chatId));
+  form.set("caption", caption);
+  form.set(
+    "document",
+    new Blob([content], { type: "text/csv;charset=utf-8" }),
+    filename
+  );
+  const res = await fetch(`${API}/bot${config.botToken}/sendDocument`, {
+    method: "POST",
+    body: form,
+  });
+  const data = (await res.json()) as TgResponse<unknown>;
+  if (!data.ok) {
+    throw new Error(`Telegram sendDocument: ${data.description ?? res.status}`);
+  }
+};
+
 export const downloadFile = async (fileId: string): Promise<Buffer> => {
   const file = await tg<{ file_path?: string }>("getFile", { file_id: fileId });
   if (!file.file_path) {

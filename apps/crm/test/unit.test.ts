@@ -179,3 +179,32 @@ describe("maintenance dates", () => {
     );
   });
 });
+
+const { toCsv } = await import("../server/csv.ts");
+
+describe("CSV export format", () => {
+  const csv = toCsv(
+    ["№", "Задача"],
+    [
+      [1, 'Камера "вход"; не работает'],
+      [2, '=HYPERLINK("http://evil")'],
+      [3, "Строка\nс переносом"],
+      [4, null],
+    ]
+  );
+
+  it("starts with a BOM and uses ; and CRLF for Russian Excel", () => {
+    assert.ok(csv.startsWith("﻿№;Задача\r\n"));
+    assert.ok(csv.endsWith("\r\n"));
+  });
+
+  it("quotes separators, quotes and newlines", () => {
+    assert.match(csv, /1;"Камера ""вход""; не работает"/);
+    assert.match(csv, /3;"Строка\nс переносом"/);
+    assert.match(csv, /\r\n4;\r\n/);
+  });
+
+  it("neutralises formulas (CSV injection)", () => {
+    assert.match(csv, /2;"'=HYPERLINK\(""http:\/\/evil""\)"/);
+  });
+});
