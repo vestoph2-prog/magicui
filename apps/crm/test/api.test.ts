@@ -5,6 +5,7 @@ import type {
   ChecklistItem,
   Dashboard,
   Deal,
+  Equipment,
   InboxItem,
   Invite,
   Message,
@@ -269,6 +270,67 @@ describe("chat", () => {
       method: "DELETE",
     });
     assert.equal(byAuthor.status, 200);
+  });
+});
+
+describe("equipment", () => {
+  it("staff record hardware, the customer only reads it", async () => {
+    const created = await manager<Equipment>(
+      `/api/objects/${deal.objectId}/equipment`,
+      {
+        method: "POST",
+        body: {
+          type: "nvr",
+          model: "Hikvision DS-7608",
+          serial: "SN123",
+          ip: "192.168.1.10",
+          installedAt: "2026-10-01",
+          password: "admin123",
+        },
+      }
+    );
+    assert.equal(created.status, 200);
+    assert.equal(created.data.model, "Hikvision DS-7608");
+    assert.ok(!("password" in created.data), "passwords are never stored");
+
+    const byClient = await client(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "camera", model: "x" },
+    });
+    assert.equal(byClient.status, 403);
+    const seen = await client<Equipment[]>(
+      `/api/objects/${deal.objectId}/equipment`
+    );
+    assert.equal(seen.data.length, 1);
+
+    const edited = await manager<Equipment>(
+      `/api/equipment/${created.data.id}`,
+      { method: "PATCH", body: { location: "Серверная", installedAt: null } }
+    );
+    assert.equal(edited.data.location, "Серверная");
+    assert.equal(edited.data.installedAt, null);
+    assert.equal(edited.data.serial, "SN123", "untouched fields survive");
+
+    const empty = await manager(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "camera" },
+    });
+    assert.equal(empty.status, 400);
+    const badType = await manager(`/api/objects/${deal.objectId}/equipment`, {
+      method: "POST",
+      body: { type: "toaster", model: "x" },
+    });
+    assert.equal(badType.status, 400);
+
+    const removed = await client(`/api/equipment/${created.data.id}`, {
+      method: "DELETE",
+    });
+    assert.equal(removed.status, 403);
+    await manager(`/api/equipment/${created.data.id}`, { method: "DELETE" });
+    const remaining = await manager<Equipment[]>(
+      `/api/objects/${deal.objectId}/equipment`
+    );
+    assert.equal(remaining.data.length, 0);
   });
 });
 

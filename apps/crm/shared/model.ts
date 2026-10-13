@@ -211,6 +211,46 @@ export const TASK_TEMPLATES: Record<Service, TaskTemplate[]> = {
   ],
 };
 
+export const EQUIPMENT_TYPES = [
+  "camera",
+  "nvr",
+  "router",
+  "switch",
+  "ont",
+  "ups",
+  "other",
+] as const;
+export type EquipmentType = (typeof EQUIPMENT_TYPES)[number];
+
+export const EQUIPMENT_LABELS: Record<EquipmentType, string> = {
+  camera: "📹 Камера",
+  nvr: "💽 Регистратор",
+  router: "📶 Роутер",
+  switch: "🔀 Коммутатор",
+  ont: "🔌 ONT / модем",
+  ups: "🔋 ИБП",
+  other: "🧰 Другое",
+};
+
+/** Installed hardware on an object. Never stores passwords — on purpose. */
+export type Equipment = {
+  id: number;
+  objectId: number;
+  type: EquipmentType;
+  model: string;
+  serial: string;
+  ip: string;
+  mac: string;
+  location: string;
+  installedAt: string | null;
+  notes: string;
+  createdAt: string;
+};
+
+export type EquipmentInput = Partial<
+  Omit<Equipment, "id" | "objectId" | "createdAt">
+>;
+
 export type User = {
   id: number;
   firstName: string;

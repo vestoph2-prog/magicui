@@ -153,7 +153,25 @@ CREATE TABLE reminders_sent (
 );
 `;
 
-const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
+/** v5: equipment installed on objects. */
+const SCHEMA_V5 = `
+CREATE TABLE equipment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  type TEXT NOT NULL DEFAULT 'other',
+  model TEXT NOT NULL DEFAULT '',
+  serial TEXT NOT NULL DEFAULT '',
+  ip TEXT NOT NULL DEFAULT '',
+  mac TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL DEFAULT '',
+  installed_at TEXT,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (${NOW_SQL})
+);
+CREATE INDEX idx_equipment_object ON equipment(object_id);
+`;
+
+const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
 
 const migrate = (database: DatabaseSync) => {
   const { user_version: current } = database

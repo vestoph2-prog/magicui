@@ -6,6 +6,7 @@ import { ChatsScreen } from "./screens/chats.tsx";
 import { DealDetailScreen } from "./screens/deal-detail.tsx";
 import { DealFormScreen } from "./screens/deal-form.tsx";
 import { DealsScreen } from "./screens/deals.tsx";
+import { EquipmentFormScreen } from "./screens/equipment.tsx";
 import {
   ObjectDetailScreen,
   ObjectFormScreen,
@@ -123,7 +124,18 @@ const dealsSection = (route: Route, { id, isForm, editId }: Parsed) => {
   );
 };
 
-const objectsSection = ({ id, isForm, editId }: Parsed) => {
+const objectsSection = (route: Route, { id, isForm, editId }: Parsed) => {
+  const [, , sub, equipmentId] = route.segments;
+  if (id && sub === "equipment") {
+    const eid = Number(equipmentId);
+    return (
+      <EquipmentFormScreen
+        id={eid > 0 ? eid : undefined}
+        key={equipmentId}
+        objectId={id}
+      />
+    );
+  }
   if (isForm) {
     return <ObjectFormScreen id={editId} />;
   }
@@ -136,7 +148,7 @@ const screenFor = (route: Route, user: User) => {
     case "deals":
       return dealsSection(route, parsed);
     case "objects":
-      return objectsSection(parsed);
+      return objectsSection(route, parsed);
     case "chats":
       return <ChatsScreen />;
     case "team":

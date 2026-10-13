@@ -24,6 +24,7 @@ import {
   TaskCard,
   useSession,
 } from "../ui.tsx";
+import { EquipmentSection } from "./equipment.tsx";
 
 export const ObjectsScreen = () => {
   const user = useSession();
@@ -214,6 +215,7 @@ export const ObjectDetailScreen = ({ id }: { id: number }) => {
       </div>
       {deals.length === 0 ? <Empty>Сделок по объекту нет</Empty> : null}
 
+      <EquipmentSection canEdit={staff} objectId={id} />
       <ObjectPhotos objectId={id} />
       {tasks.data?.length ? (
         <>

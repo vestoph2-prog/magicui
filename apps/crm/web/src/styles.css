@@ -1059,3 +1059,9 @@ button.card:active {
   color: var(--text);
   font-size: 14px;
 }
+
+.copyable {
+  padding: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}

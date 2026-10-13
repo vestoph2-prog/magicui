@@ -4,6 +4,9 @@ import {
   DEAL_STAGES,
   type DealInput,
   type DealStage,
+  EQUIPMENT_TYPES,
+  type EquipmentInput,
+  type EquipmentType,
   isStaff,
   MAX_PHOTOS_PER_MESSAGE,
   type ObjectInput,
@@ -32,6 +35,13 @@ import {
   totalUnread,
 } from "./chat-repo.ts";
 import { config } from "./config.ts";
+import {
+  createEquipment,
+  deleteEquipment,
+  getEquipment,
+  listEquipment,
+  updateEquipment,
+} from "./equipment-repo.ts";
 import { type Ctx, createRouter, HttpError } from "./http.ts";
 import {
   addChecklistItem,
@@ -173,6 +183,50 @@ router.get("/api/objects/:id", (ctx) => {
 router.get("/api/objects/:id/photos", (ctx) => {
   requireMember(ctx.user);
   return objectPhotos(found(getObject(idParam(ctx)), "Объект").id);
+});
+
+/* -------------------------------- equipment ------------------------------- */
+
+const equipmentInput = (b: Body): EquipmentInput => ({
+  type: oneOf<EquipmentType>(b, "type", EQUIPMENT_TYPES),
+  model: str(b, "model", 200),
+  serial: str(b, "serial", 200),
+  ip: str(b, "ip", 64),
+  mac: str(b, "mac", 64),
+  location: str(b, "location", 200),
+  installedAt: nullableDate(b, "installedAt"),
+  notes: str(b, "notes", 1000),
+});
+
+const equipmentOr404 = (ctx: Ctx) =>
+  found(getEquipment(idParam(ctx)), "Оборудование");
+
+router.get("/api/objects/:id/equipment", (ctx) => {
+  requireMember(ctx.user);
+  return listEquipment(found(getObject(idParam(ctx)), "Объект").id);
+});
+
+router.post("/api/objects/:id/equipment", (ctx) => {
+  requireStaff(ctx.user);
+  const object = found(getObject(idParam(ctx)), "Объект");
+  const input = equipmentInput(bodyOf(ctx));
+  if (!(input.model || input.serial || input.location)) {
+    throw new HttpError(400, "Укажите модель, серийный номер или место");
+  }
+  return getEquipment(createEquipment(object.id, input));
+});
+
+router.patch("/api/equipment/:id", (ctx) => {
+  requireStaff(ctx.user);
+  const item = equipmentOr404(ctx);
+  updateEquipment(item.id, equipmentInput(bodyOf(ctx)));
+  return getEquipment(item.id);
+});
+
+router.delete("/api/equipment/:id", (ctx) => {
+  requireStaff(ctx.user);
+  deleteEquipment(equipmentOr404(ctx).id);
+  return { ok: true };
 });
 
 router.post("/api/objects", (ctx) => {

@@ -254,7 +254,16 @@ const TaskHead = ({
       </div>
       <h2>{task.title}</h2>
       <div className="hint">
-        {SERVICE_ICONS[task.service]} {task.objectName} · {task.dealTitle}
+        {SERVICE_ICONS[task.service]}{" "}
+        <button
+          className="link-btn"
+          onClick={go(`/objects/${task.objectId}`)}
+          style={{ padding: 0, fontSize: "inherit" }}
+          type="button"
+        >
+          {task.objectName}
+        </button>{" "}
+        · {task.dealTitle}
         {task.dueDate ? (
           <>
             {" · "}
