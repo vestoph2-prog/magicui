@@ -450,6 +450,13 @@
   html[data-magicui-theme-vt="active"]::view-transition-new(root) {
     clip-path: var(--magicui-theme-vt-clip-from);
   }
+
+  /* Header theme switch: the thumb slides across the track while the page is revealed. */
+  ::view-transition-group(theme-switch-thumb) {
+    z-index: 1;
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
 }
 
 @utility no-scrollbar {
